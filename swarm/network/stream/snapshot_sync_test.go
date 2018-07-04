@@ -240,7 +240,6 @@ func TestNewSyncing(t *testing.T) {
 	conf.addrToIdMap = make(map[string]discover.NodeID)
 	//array where the generated chunk hashes will be stored
 	conf.hashes = make([]storage.Address, 0)
-	//time.Sleep(5 * time.Second)
 
 	err = sim.UploadSnapshot(fmt.Sprintf("testing/snapshot_%d.json", nodeCount))
 	if err != nil {
@@ -287,6 +286,7 @@ func TestNewSyncing(t *testing.T) {
 				return err
 			}
 		}
+		//time.Sleep(5 * time.Second)
 
 		// File retrieval check is repeated until all uploaded files are retrieved from all nodes
 		// or until the timeout is reached.
