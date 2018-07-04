@@ -157,8 +157,10 @@ func TestNewSyncing(t *testing.T) {
 	//provide empty (default options) to the simulation
 	//(no HTTP server for this simulation)
 	chunkCount := 32
+	nodeCount := 16
 	so := &netsim.SimulationOptions{}
 
+	bucketKeyStore := netsim.BucketKey("store")
 	sim := netsim.NewSimulation(map[string]netsim.ServiceFunc{
 		"streamer": func(ctx *adapters.ServiceContext, bucket *sync.Map) (s node.Service, cleanup func(), err error) {
 
@@ -172,7 +174,7 @@ func TestNewSyncing(t *testing.T) {
 				store.Close()
 				os.RemoveAll(datadir)
 			}
-			bucket.Store("store", store)
+			bucket.Store(bucketKeyStore, store)
 			netStore, err := storage.NewSyncNetStore(store.(storage.SyncDB), nil)
 			if err != nil {
 				return nil, cleanup, err
@@ -218,64 +220,46 @@ func TestNewSyncing(t *testing.T) {
 	}, so)
 	defer sim.Close()
 
-	/*
-			//the ids of the snapshot nodes, initiate only now as we need nodeCount
-			ids = make([]discover.NodeID, nodeCount)
-			//initialize the test struct
-			conf = &synctestConfig{}
-			//map of discover ID to indexes of chunks expected at that ID
-			conf.idToChunksMap = make(map[discover.NodeID][]int)
-			//map of overlay address to discover ID
-			conf.addrToIdMap = make(map[string]discover.NodeID)
-			//array where the generated chunk hashes will be stored
-			conf.hashes = make([]storage.Address, 0)
-			//channel to trigger node checks in the simulation
-			trigger := make(chan discover.NodeID)
-			//channel to check for disconnection errors
-			disconnectC := make(chan error)
-			//channel to close disconnection watcher routine
-			quitC := make(chan struct{})
-
-			//load nodes from the snapshot file
-			net, err := initNetWithSnapshot(nodeCount)
-			if err != nil {
-				return err
-			}
-		var rpcSubscriptionsWg sync.WaitGroup
-		//do cleanup after test is terminated
-		defer func() {
-			// close quitC channel to signall all goroutines to clanup
-			// before calling simulation network shutdown.
-			close(quitC)
-			//wait for all rpc subscriptions to unsubscribe
-			rpcSubscriptionsWg.Wait()
-			//shutdown the snapshot network
-			net.Shutdown()
-			//after the test, clean up local stores initialized with createLocalStoreForId
-			localStoreCleanup()
-			//finally clear all data directories
-			datadirsCleanup()
-		}()
-		//get the nodes of the network
-		nodes := net.GetNodes()
-		//select one index at random...
-		idx := rand.Intn(len(nodes))
-		//...and get the the node at that index
-		//this is the node selected for upload
-		node := nodes[idx]
-
-	*/
 	log.Info("Initializing test config")
-	addNodeOptions := func(o *adapters.NodeConfig) {
-		o.Services = []string{"streamer"}
-	}
-	_, err := sim.AddNodesAndConnectFull(3, addNodeOptions)
+	/*
+		addNodeOptions := func(o *adapters.NodeConfig) {
+			o.Services = []string{"streamer"}
+		}
+	*/
+	//_, err := sim.AddNodesAndConnectFull(3, addNodeOptions)
+	_, err := sim.AddNodesAndConnectFull(3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+
+	conf := &synctestConfig{}
+	//map of discover ID to indexes of chunks expected at that ID
+	conf.idToChunksMap = make(map[discover.NodeID][]int)
+	//map of overlay address to discover ID
+	conf.addrToIdMap = make(map[string]discover.NodeID)
+	//array where the generated chunk hashes will be stored
+	conf.hashes = make([]storage.Address, 0)
+	//time.Sleep(5 * time.Second)
+
+	err = sim.UploadSnapshot(fmt.Sprintf("testing/snapshot_%d.json", nodeCount))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	result := sim.Run(ctx, func(ctx context.Context, sim *netsim.Simulation) error {
 		nodeIDs := sim.UpNodeIDs()
+		for _, n := range nodeIDs {
+			//get the kademlia overlay address from this ID
+			a := network.ToOverlayAddr(n.Bytes())
+			//append it to the array of all overlay addresses
+			conf.addrs = append(conf.addrs, a)
+			//the proximity calculation is on overlay addr,
+			//the p2p/simulations check func triggers on discover.NodeID,
+			//so we need to know which overlay addr maps to which nodeID
+			conf.addrToIdMap[string(a)] = n
+		}
+
 		/*
 			shuffle(len(nodeIDs), func(i, j int) {
 				nodeIDs[i], nodeIDs[j] = nodeIDs[j], nodeIDs[i]
@@ -286,16 +270,16 @@ func TestNewSyncing(t *testing.T) {
 		//...and get the the node at that index
 		//this is the node selected for upload
 		node := nodeIDs[idx]
-		for _, v := range sim.NodeItems("store") {
-			fmt.Println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
-			fmt.Println(v)
-		}
-		item, ok := sim.NodeItem(node, "store")
+		item, ok := sim.NodeItem(node, bucketKeyStore)
 		if !ok {
 			return fmt.Errorf("No localstore")
 		}
 		lstore := item.(*storage.LocalStore)
-		uploadFileToSingleNodeStore2(node, chunkCount, lstore)
+		hashes, err := uploadFileToSingleNodeStore2(node, chunkCount, lstore)
+		if err != nil {
+			return err
+		}
+		conf.hashes = append(conf.hashes, hashes...)
 		mapKeysToNodes(conf)
 
 		if *waitKademlia {
@@ -328,7 +312,7 @@ func TestNewSyncing(t *testing.T) {
 				} else {
 					//use the actual localstore
 					//lstore := stores[id]
-					item, ok := sim.NodeItem(id, "store")
+					item, ok := sim.NodeItem(id, bucketKeyStore)
 					if !ok {
 						return fmt.Errorf("Error accessing localstore")
 					}
@@ -343,6 +327,7 @@ func TestNewSyncing(t *testing.T) {
 				}
 			}
 			if !allSuccess {
+				fmt.Println("5")
 				return fmt.Errorf("Not all chunks succeeded!")
 			}
 		}
@@ -352,244 +337,6 @@ func TestNewSyncing(t *testing.T) {
 	if result.Error != nil {
 		t.Fatal(result.Error)
 	}
-	/*
-		//iterate over all nodes...
-		for c := 0; c < len(nodes); c++ {
-			//create an array of discovery node IDs
-			ids[c] = nodes[c].ID()
-			//get the kademlia overlay address from this ID
-			a := network.ToOverlayAddr(ids[c].Bytes())
-			//append it to the array of all overlay addresses
-			conf.addrs = append(conf.addrs, a)
-			//the proximity calculation is on overlay addr,
-			//the p2p/simulations check func triggers on discover.NodeID,
-			//so we need to know which overlay addr maps to which nodeID
-			conf.addrToIdMap[string(a)] = ids[c]
-		}
-		log.Info("Test config successfully initialized")
-
-		//only needed for healthy call when debugging
-		ppmap = network.NewPeerPotMap(testMinProxBinSize, conf.addrs)
-
-		//define the action to be performed before the test checks: start syncing
-		action := func(ctx context.Context) error {
-			//first run the health check on all nodes,
-			//wait until nodes are all healthy
-			ticker := time.NewTicker(200 * time.Millisecond)
-			defer ticker.Stop()
-			for range ticker.C {
-				healthy := true
-				for _, id := range ids {
-					r := registries[id]
-					//PeerPot for this node
-					addr := common.Bytes2Hex(network.ToOverlayAddr(id.Bytes()))
-					pp := ppmap[addr]
-					//call Healthy RPC
-					h := r.delivery.overlay.Healthy(pp)
-					//print info
-					log.Debug(r.delivery.overlay.String())
-					log.Debug(fmt.Sprintf("IS HEALTHY: %t", h.GotNN && h.KnowNN && h.Full))
-					if !h.GotNN || !h.Full {
-						healthy = false
-						break
-					}
-				}
-				if healthy {
-					break
-				}
-			}
-
-			if history {
-				log.Info("Uploading for history")
-				//If testing only history, we upload the chunk(s) first
-				chunks, err := uploadFileToSingleNodeStore(node.ID(), chunkCount)
-				if err != nil {
-					return err
-				}
-				conf.hashes = append(conf.hashes, chunks...)
-				//finally map chunks to the closest addresses
-				mapKeysToNodes(conf)
-			}
-
-			//variables needed to wait for all subscriptions established before uploading
-			errc := make(chan error)
-
-			//now setup and start event watching in order to know when we can upload
-			ctx, watchCancel := context.WithTimeout(context.Background(), MaxTimeout*time.Second)
-			defer watchCancel()
-
-			log.Info("Setting up stream subscription")
-
-			//We need two iterations, one to subscribe to the subscription events
-			//(so we know when setup phase is finished), and one to
-			//actually run the stream subscriptions. We can't do it in the same iteration,
-			//because while the first nodes in the loop are setting up subscriptions,
-			//the latter ones have not subscribed to listen to peer events yet,
-			//and then we miss events.
-
-			//first iteration: setup disconnection watcher and subscribe to peer events
-			for j, id := range ids {
-				log.Trace(fmt.Sprintf("Subscribe to subscription events: %d", j))
-				client, err := net.GetNode(id).Client()
-				if err != nil {
-					return err
-				}
-
-				wsDoneC := watchSubscriptionEvents(ctx, id, client, errc, quitC)
-				// doneC is nil, the error happened which is sent to errc channel, already
-				if wsDoneC == nil {
-					continue
-				}
-				rpcSubscriptionsWg.Add(1)
-				go func() {
-					<-wsDoneC
-					rpcSubscriptionsWg.Done()
-				}()
-
-				//watch for peers disconnecting
-				wdDoneC, err := streamTesting.WatchDisconnections(id, client, disconnectC, quitC)
-				if err != nil {
-					return err
-				}
-				rpcSubscriptionsWg.Add(1)
-				go func() {
-					<-wdDoneC
-					rpcSubscriptionsWg.Done()
-				}()
-			}
-
-			//second iteration: start syncing
-			for j, id := range ids {
-				log.Trace(fmt.Sprintf("Start syncing subscriptions: %d", j))
-				client, err := net.GetNode(id).Client()
-				if err != nil {
-					return err
-				}
-				//start syncing!
-				var cnt int
-				err = client.CallContext(ctx, &cnt, "stream_startSyncing")
-				if err != nil {
-					return err
-				}
-				//increment the number of subscriptions we need to wait for
-				//by the count returned from startSyncing (SYNC subscriptions)
-				subscriptionCount += cnt
-			}
-
-			//now wait until the number of expected subscriptions has been finished
-			//`watchSubscriptionEvents` will write with a `nil` value to errc
-			for err := range errc {
-				if err != nil {
-					return err
-				}
-				//`nil` received, decrement count
-				subscriptionCount--
-				//all subscriptions received
-				if subscriptionCount == 0 {
-					break
-				}
-			}
-
-			log.Info("Stream subscriptions successfully requested")
-			if live {
-				//now upload the chunks to the selected random single node
-				hashes, err := uploadFileToSingleNodeStore(node.ID(), chunkCount)
-				if err != nil {
-					return err
-				}
-				conf.hashes = append(conf.hashes, hashes...)
-				//finally map chunks to the closest addresses
-				log.Debug(fmt.Sprintf("Uploaded chunks for live syncing: %v", conf.hashes))
-				mapKeysToNodes(conf)
-				log.Info(fmt.Sprintf("Uploaded %d chunks to random single node", chunkCount))
-			}
-
-			log.Info("Action terminated")
-
-			return nil
-		}
-
-		//check defines what will be checked during the test
-		check := func(ctx context.Context, id discover.NodeID) (bool, error) {
-			select {
-			case <-ctx.Done():
-				return false, ctx.Err()
-			case e := <-disconnectC:
-				log.Error(e.Error())
-				return false, fmt.Errorf("Disconnect event detected, network unhealthy")
-			default:
-			}
-			log.Trace(fmt.Sprintf("Checking node: %s", id))
-			//select the local store for the given node
-			//if there are more than one chunk, test only succeeds if all expected chunks are found
-			allSuccess := true
-
-			//all the chunk indexes which are supposed to be found for this node
-			localChunks := conf.idToChunksMap[id]
-			//for each expected chunk, check if it is in the local store
-			for _, ch := range localChunks {
-				//get the real chunk by the index in the index array
-				chunk := conf.hashes[ch]
-				log.Trace(fmt.Sprintf("node has chunk: %s:", chunk))
-				//check if the expected chunk is indeed in the localstore
-				var err error
-				if *useMockStore {
-					if globalStore == nil {
-						return false, fmt.Errorf("Something went wrong; using mockStore enabled but globalStore is nil")
-					}
-					//use the globalStore if the mockStore should be used; in that case,
-					//the complete localStore stack is bypassed for getting the chunk
-					_, err = globalStore.Get(common.BytesToAddress(id.Bytes()), chunk)
-				} else {
-					//use the actual localstore
-					lstore := stores[id]
-					_, err = lstore.Get(ctx, chunk)
-				}
-				if err != nil {
-					log.Warn(fmt.Sprintf("Chunk %s NOT found for id %s", chunk, id))
-					allSuccess = false
-				} else {
-					log.Debug(fmt.Sprintf("Chunk %s IS FOUND for id %s", chunk, id))
-				}
-			}
-
-			return allSuccess, nil
-		}
-
-		//for each tick, run the checks on all nodes
-		timingTicker := time.NewTicker(time.Second * 1)
-		defer timingTicker.Stop()
-		go func() {
-			for range timingTicker.C {
-				for i := 0; i < len(ids); i++ {
-					log.Trace(fmt.Sprintf("triggering step %d, id %s", i, ids[i]))
-					trigger <- ids[i]
-				}
-			}
-		}()
-
-		log.Info("Starting simulation run...")
-
-		timeout := MaxTimeout * time.Second
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-
-		//run the simulation
-		result := simulations.NewSimulation(net).Run(ctx, &simulations.Step{
-			Action:  action,
-			Trigger: trigger,
-			Expect: &simulations.Expectation{
-				Nodes: ids,
-				Check: check,
-			},
-		})
-
-		if result.Error != nil {
-			return result.Error
-		}
-		log.Info("Simulation terminated")
-		return nil
-	*/
 }
 
 //Do run the tests

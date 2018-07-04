@@ -17,11 +17,16 @@
 package netsim
 
 import (
+	"encoding/json"
 	"errors"
+	"io/ioutil"
 	"math/rand"
+	"os"
 	"time"
 
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p/discover"
+	"github.com/ethereum/go-ethereum/p2p/simulations"
 	"github.com/ethereum/go-ethereum/p2p/simulations/adapters"
 )
 
@@ -56,6 +61,45 @@ func AddNodeWithMsgEvents(enable bool) AddNodeOption {
 	return func(o *adapters.NodeConfig) {
 		o.EnableMsgEvents = enable
 	}
+}
+
+//Upload a snapshot
+func (s *Simulation) UploadSnapshot(snapshotFile string, opts ...AddNodeOption) error {
+	f, err := os.Open(snapshotFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	jsonbyte, err := ioutil.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	var snap simulations.Snapshot
+	err = json.Unmarshal(jsonbyte, &snap)
+	if err != nil {
+		return err
+	}
+
+	//the snapshot probably has the property EnableMsgEvents not set
+	//just in case, set it to true!
+	//(we need this to wait for messages before uploading)
+	for _, n := range snap.Nodes {
+		n.Node.Config.EnableMsgEvents = true
+		n.Node.Config.Services = s.serviceNames
+		for _, o := range opts {
+			o(n.Node.Config)
+		}
+	}
+
+	log.Info("Waiting for p2p connections to be established...")
+
+	//now we can load the snapshot
+	err = s.Net.Load(&snap)
+	if err != nil {
+		return err
+	}
+	log.Info("Snapshot loaded")
+	return nil
 }
 
 // AddNode creates a new node with random configuration,
