@@ -60,7 +60,7 @@ func (f *fakeTimeProvider) Tick() {
 	f.currentTime++
 }
 
-func (f *fakeTimeProvider) GetCurrentTimestamp() Timestamp {
+func (f *fakeTimeProvider) Now() Timestamp {
 	return Timestamp{
 		Time: f.currentTime,
 	}
@@ -70,7 +70,7 @@ func TestUpdateChunkSerializationErrorChecking(t *testing.T) {
 
 	// Test that parseUpdate fails if the chunk is too small
 	var r SignedResourceUpdate
-	if err := r.parseUpdateChunk(storage.ZeroAddr, make([]byte, minimumUpdateDataLength-1)); err == nil {
+	if err := r.fromChunk(storage.ZeroAddr, make([]byte, minimumUpdateDataLength-1)); err == nil {
 		t.Fatalf("Expected parseUpdate to fail when chunkData contains less than %d bytes", minimumUpdateDataLength)
 	}
 
@@ -78,7 +78,7 @@ func TestUpdateChunkSerializationErrorChecking(t *testing.T) {
 	// Test that parseUpdate fails when the length header does not match the data array length
 	fakeChunk := make([]byte, 150)
 	binary.LittleEndian.PutUint16(fakeChunk, 44)
-	if err := r.parseUpdateChunk(storage.ZeroAddr, fakeChunk); err == nil {
+	if err := r.fromChunk(storage.ZeroAddr, fakeChunk); err == nil {
 		t.Fatal("Expected parseUpdate to fail when the header length does not match the actual data array passed in")
 	}
 
@@ -87,25 +87,25 @@ func TestUpdateChunkSerializationErrorChecking(t *testing.T) {
 			updateHeader: updateHeader{
 				UpdateLookup: UpdateLookup{
 
-					rootAddr: make([]byte, 79),
+					rootAddr: make([]byte, 79), // put the wrong length, should be storage.KeyLength
 				},
 				metaHash:  nil,
 				multihash: false,
 			},
 		},
 	}
-	_, err := r.newUpdateChunk()
+	_, err := r.toChunk()
 	if err == nil {
 		t.Fatal("Expected newUpdateChunk to fail when rootAddr or metaHash have the wrong length")
 	}
 	r.rootAddr = make([]byte, storage.KeyLength)
 	r.metaHash = make([]byte, storage.KeyLength)
-	_, err = r.newUpdateChunk()
+	_, err = r.toChunk()
 	if err == nil {
 		t.Fatal("Expected newUpdateChunk to fail when there is no data")
 	}
-	r.data = make([]byte, 79)
-	_, err = r.newUpdateChunk()
+	r.data = make([]byte, 79) // put some arbitrary length data
+	_, err = r.toChunk()
 	if err == nil {
 		t.Fatal("expected newUpdateChunk to fail when there is no signature", err)
 	}
@@ -115,13 +115,13 @@ func TestUpdateChunkSerializationErrorChecking(t *testing.T) {
 		t.Fatalf("error signing:%s", err)
 
 	}
-	_, err = r.newUpdateChunk()
+	_, err = r.toChunk()
 	if err != nil {
 		t.Fatalf("error creating update chunk:%s", err)
 	}
 
 	r.multihash = true
-	r.data[1] = 79
+	r.data[1] = 79 // mess with the multihash, corrupting one byte of it.
 	if err := r.Sign(alice); err == nil {
 		t.Fatal("expected Sign() to fail when an invalid multihash is in data and multihash=true", err)
 	}
@@ -148,14 +148,14 @@ func TestReverse(t *testing.T) {
 	}
 	defer teardownTest()
 
-	metadata := resourceMetadata{
-		name:      resourceName,
-		startTime: startTime,
-		frequency: resourceFrequency,
-		ownerAddr: signer.Address(),
+	metadata := ResourceMetadata{
+		Name:      resourceName,
+		StartTime: startTime,
+		Frequency: resourceFrequency,
+		Owner:     signer.Address(),
 	}
 
-	rootAddr, metaHash, _, err := metadata.hashAndSerialize()
+	rootAddr, metaHash, _, err := metadata.serializeAndHash()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,27 +183,27 @@ func TestReverse(t *testing.T) {
 		},
 	}
 	// generate a hash for t=4200 version 1
-	key := update.GetUpdateAddr()
+	key := update.UpdateAddr()
 
 	if err = update.Sign(signer); err != nil {
 		t.Fatal(err)
 	}
 
-	chunk, err := update.newUpdateChunk()
+	chunk, err := update.toChunk()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// check that we can recover the owner account from the update chunk's signature
 	var checkUpdate SignedResourceUpdate
-	if err := checkUpdate.parseUpdateChunk(chunk.Addr, chunk.SData); err != nil {
+	if err := checkUpdate.fromChunk(chunk.Addr, chunk.SData); err != nil {
 		t.Fatal(err)
 	}
 	checkdigest, err := checkUpdate.getDigest(chunk.Addr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	recoveredaddress, err := getAddressFromDataSig(checkdigest, *checkUpdate.signature)
+	recoveredaddress, err := getOwner(checkdigest, *checkUpdate.signature)
 	if err != nil {
 		t.Fatalf("Retrieve address from signature fail: %v", err)
 	}
@@ -248,7 +248,15 @@ func TestResourceHandler(t *testing.T) {
 	// create a new resource
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	request, err := NewCreateRequest(resourceName, resourceFrequency, timeProvider.GetCurrentTimestamp().Time, signer.Address(), nil, false)
+
+	metadata := &ResourceMetadata{
+		Name:      resourceName,
+		Frequency: resourceFrequency,
+		StartTime: Timestamp{Time: timeProvider.Now().Time},
+		Owner:     signer.Address(),
+	}
+
+	request, err := NewCreateRequest(metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,17 +276,17 @@ func TestResourceHandler(t *testing.T) {
 		t.Fatalf("chunk data must be minimum 16 bytes, is %d", len(chunk.SData))
 	}
 
-	var recoveredMetadata resourceMetadata
+	var recoveredMetadata ResourceMetadata
 
 	recoveredMetadata.binaryGet(chunk.SData)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recoveredMetadata.startTime.Time != timeProvider.currentTime {
-		t.Fatalf("stored startTime %d does not match provided startTime %d", recoveredMetadata.startTime.Time, timeProvider.currentTime)
+	if recoveredMetadata.StartTime.Time != timeProvider.currentTime {
+		t.Fatalf("stored startTime %d does not match provided startTime %d", recoveredMetadata.StartTime.Time, timeProvider.currentTime)
 	}
-	if recoveredMetadata.frequency != resourceFrequency {
-		t.Fatalf("stored frequency %d does not match provided frequency %d", recoveredMetadata.frequency, resourceFrequency)
+	if recoveredMetadata.Frequency != resourceFrequency {
+		t.Fatalf("stored frequency %d does not match provided frequency %d", recoveredMetadata.Frequency, resourceFrequency)
 	}
 
 	// data for updates:
@@ -293,11 +301,11 @@ func TestResourceHandler(t *testing.T) {
 	resourcekey := make(map[string]storage.Address)
 	fwdClock(int(resourceFrequency/2), timeProvider)
 	data := []byte(updates[0])
-	request.SetData(data)
+	request.SetData(data, false)
 	if err := request.Sign(signer); err != nil {
 		t.Fatal(err)
 	}
-	resourcekey[updates[0]], err = rh.Update(ctx, request.rootAddr, &request.SignedResourceUpdate)
+	resourcekey[updates[0]], err = rh.Update(ctx, &request.SignedResourceUpdate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,16 +319,7 @@ func TestResourceHandler(t *testing.T) {
 		t.Fatal("Suggested period should be 1 and version should be 2")
 	}
 
-	request.version = 1 // force version 1 instead of 2 to make it fail
 	data = []byte(updates[1])
-	request.SetData(data)
-	if err := request.Sign(signer); err != nil {
-		t.Fatal(err)
-	}
-	resourcekey[updates[1]], err = rh.Update(ctx, request.rootAddr, &request.SignedResourceUpdate)
-	if err == nil {
-		t.Fatal("Expected update to fail since this version already exists")
-	}
 
 	// update on second period with version = 1, correct. period=2, version=1
 	fwdClock(int(resourceFrequency/2), timeProvider)
@@ -328,57 +327,47 @@ func TestResourceHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.SetData(data)
+	request.SetData(data, false)
 	if err := request.Sign(signer); err != nil {
 		t.Fatal(err)
 	}
-	resourcekey[updates[1]], err = rh.Update(ctx, request.rootAddr, &request.SignedResourceUpdate)
+	resourcekey[updates[1]], err = rh.Update(ctx, &request.SignedResourceUpdate)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// first attempt to update on third period, setting version to something different than 1 to make it fail
 	fwdClock(int(resourceFrequency), timeProvider)
-	request, err = rh.NewUpdateRequest(ctx, request.rootAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.version = 79 //put something different than 1 to make it fail
-	data = []byte(updates[2])
-	request.SetData(data)
-	if err := request.Sign(signer); err != nil {
-		t.Fatal(err)
-	}
-	resourcekey[updates[2]], err = rh.Update(ctx, request.rootAddr, &request.SignedResourceUpdate)
-	if err == nil {
-		t.Fatal("Expected update to fail since this is the first version of this period and we didn't set version=1")
-	}
-
-	// second attempt to update on third period, now with version =1 should work since it is the first one
+	// Update on third period, with version = 1
 	request, err = rh.NewUpdateRequest(ctx, request.rootAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	data = []byte(updates[2])
-	request.SetData(data)
+	request.SetData(data, false)
 	if err := request.Sign(signer); err != nil {
 		t.Fatal(err)
 	}
-	resourcekey[updates[2]], err = rh.Update(ctx, request.rootAddr, &request.SignedResourceUpdate)
+	resourcekey[updates[2]], err = rh.Update(ctx, &request.SignedResourceUpdate)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// update just after second period
+	// update just after third period
 	fwdClock(1, timeProvider)
+	request, err = rh.NewUpdateRequest(ctx, request.rootAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.period != 3 || request.version != 2 {
+		t.Fatal("Suggested period should be 3 and version should be 2")
+	}
 	data = []byte(updates[3])
-	request.SetData(data)
+	request.SetData(data, false)
 
-	request.version = 2
 	if err := request.Sign(signer); err != nil {
 		t.Fatal(err)
 	}
-	resourcekey[updates[3]], err = rh.Update(ctx, request.rootAddr, &request.SignedResourceUpdate)
+	resourcekey[updates[3]], err = rh.Update(ctx, &request.SignedResourceUpdate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +417,7 @@ func TestResourceHandler(t *testing.T) {
 	}
 	// check data
 	if !bytes.Equal(rsrc.data, []byte(updates[len(updates)-1])) {
-		t.Fatalf("resource data (historical) was %v, expected %v", rsrc2.data, updates[len(updates)-1])
+		t.Fatalf("resource data (historical) was %v, expected %v", string(rsrc2.data), updates[len(updates)-1])
 	}
 	log.Debug("Historical lookup", "period", rsrc2.period, "version", rsrc2.version, "data", rsrc2.data)
 
@@ -440,20 +429,19 @@ func TestResourceHandler(t *testing.T) {
 	}
 	// check data
 	if !bytes.Equal(rsrc.data, []byte(updates[2])) {
-		t.Fatalf("resource data (historical) was %v, expected %v", rsrc2.data, updates[2])
+		t.Fatalf("resource data (historical) was %v, expected %v", string(rsrc2.data), updates[2])
 	}
 	log.Debug("Specific version lookup", "period", rsrc2.period, "version", rsrc2.version, "data", rsrc2.data)
 
 	// we are now at third update
 	// check backwards stepping to the first
 	for i := 1; i >= 0; i-- {
-		//rsrc, err := rh2.LookupPreviousByName(ctx, safeName, rh2.queryMaxPeriods)
 		rsrc, err := rh2.LookupPrevious(ctx, lookupParams)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(rsrc.data, []byte(updates[i])) {
-			t.Fatalf("resource data (previous) was %v, expected %v", rsrc2.data, updates[i])
+			t.Fatalf("resource data (previous) was %v, expected %v", rsrc.data, updates[i])
 
 		}
 	}
@@ -461,7 +449,7 @@ func TestResourceHandler(t *testing.T) {
 	// beyond the first should yield an error
 	rsrc, err = rh2.LookupPrevious(ctx, lookupParams)
 	if err == nil {
-		t.Fatalf("expeected previous to fail, returned period %d version %d data %v", rsrc2.period, rsrc2.version, rsrc2.data)
+		t.Fatalf("expected previous to fail, returned period %d version %d data %v", rsrc.period, rsrc.version, rsrc.data)
 	}
 
 }
@@ -486,7 +474,15 @@ func TestMultihash(t *testing.T) {
 	// create a new resource
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	mr, err := NewCreateRequest(resourceName, resourceFrequency, timeProvider.GetCurrentTimestamp().Time, signer.Address(), nil, true)
+
+	metadata := &ResourceMetadata{
+		Name:      resourceName,
+		Frequency: resourceFrequency,
+		StartTime: Timestamp{Time: timeProvider.Now().Time},
+		Owner:     signer.Address(),
+	}
+
+	mr, err := NewCreateRequest(metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,12 +502,12 @@ func TestMultihash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mr.SetData(multihashmulti)
+	mr.SetData(multihashmulti, true)
 	mr.Sign(signer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	multihashkey, err := rh.Update(ctx, mr.rootAddr, &mr.SignedResourceUpdate)
+	multihashkey, err := rh.Update(ctx, &mr.SignedResourceUpdate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,12 +521,12 @@ func TestMultihash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mr.SetData(sha1multi)
+	mr.SetData(sha1multi, true)
 	mr.Sign(signer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sha1key, err := rh.Update(ctx, mr.rootAddr, &mr.SignedResourceUpdate)
+	sha1key, err := rh.Update(ctx, &mr.SignedResourceUpdate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,12 +536,12 @@ func TestMultihash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mr.SetData(multihashmulti[1:])
+	mr.SetData(multihashmulti[1:], true)
 	mr.Sign(signer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = rh.Update(ctx, mr.rootAddr, &mr.SignedResourceUpdate)
+	_, err = rh.Update(ctx, &mr.SignedResourceUpdate)
 	if err == nil {
 		t.Fatalf("Expected update to fail with first byte skipped")
 	}
@@ -553,13 +549,13 @@ func TestMultihash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mr.SetData(multihashmulti[:len(multihashmulti)-2])
+	mr.SetData(multihashmulti[:len(multihashmulti)-2], true)
 	mr.Sign(signer)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = rh.Update(ctx, mr.rootAddr, &mr.SignedResourceUpdate)
+	_, err = rh.Update(ctx, &mr.SignedResourceUpdate)
 	if err == nil {
 		t.Fatalf("Expected update to fail with last byte skipped")
 	}
@@ -596,7 +592,7 @@ func TestMultihash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mr, err = NewCreateRequest(resourceName, resourceFrequency, timeProvider.GetCurrentTimestamp().Time, signer.Address(), nil, true)
+	mr, err = NewCreateRequest(metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,13 +605,13 @@ func TestMultihash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mr.SetData(multihashmulti)
+	mr.SetData(multihashmulti, true)
 	mr.Sign(signer)
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	multihashsignedkey, err := rh2.Update(ctx, mr.rootAddr, &mr.SignedResourceUpdate)
+	multihashsignedkey, err := rh2.Update(ctx, &mr.SignedResourceUpdate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,13 +620,13 @@ func TestMultihash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mr.SetData(sha1multi)
+	mr.SetData(sha1multi, true)
 	mr.Sign(signer)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	sha1signedkey, err := rh2.Update(ctx, mr.rootAddr, &mr.SignedResourceUpdate)
+	sha1signedkey, err := rh2.Update(ctx, &mr.SignedResourceUpdate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -683,7 +679,13 @@ func TestValidator(t *testing.T) {
 	// create new resource
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	mr, err := NewCreateRequest(resourceName, resourceFrequency, timeProvider.GetCurrentTimestamp().Time, signer.Address(), nil, false)
+	metadata := &ResourceMetadata{
+		Name:      resourceName,
+		Frequency: resourceFrequency,
+		StartTime: Timestamp{Time: timeProvider.Now().Time},
+		Owner:     signer.Address(),
+	}
+	mr, err := NewCreateRequest(metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,11 +698,11 @@ func TestValidator(t *testing.T) {
 
 	// chunk with address
 	data := []byte("foo")
-	mr.SetData(data)
+	mr.SetData(data, false)
 	if err := mr.Sign(signer); err != nil {
 		t.Fatalf("sign fail: %v", err)
 	}
-	chunk, err := mr.SignedResourceUpdate.newUpdateChunk()
+	chunk, err := mr.SignedResourceUpdate.toChunk()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,11 +711,17 @@ func TestValidator(t *testing.T) {
 	}
 
 	// chunk with address made from different publickey
+	if err := mr.Sign(falseSigner); err == nil {
+		t.Fatalf("Expected Sign to fail since we are using a different OwnerAddr: %v", err)
+	}
+
+	// chunk with address made from different publickey
+	mr.metadata.Owner = zeroAddr // set to zero to bypass .Sign() check
 	if err := mr.Sign(falseSigner); err != nil {
 		t.Fatalf("sign fail: %v", err)
 	}
 
-	chunk, err = mr.SignedResourceUpdate.newUpdateChunk()
+	chunk, err = mr.SignedResourceUpdate.toChunk()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -724,13 +732,12 @@ func TestValidator(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	startTime := rh.getCurrentTime(ctx)
 
-	metadata := &resourceMetadata{
-		name:      resourceName,
-		startTime: startTime,
-		frequency: resourceFrequency,
-		ownerAddr: signer.Address(),
+	metadata = &ResourceMetadata{
+		Name:      resourceName,
+		StartTime: rh.Now(ctx),
+		Frequency: resourceFrequency,
+		Owner:     signer.Address(),
 	}
 	chunk, _, err = metadata.newChunk()
 	if err != nil {
@@ -786,11 +793,11 @@ func TestValidatorInStore(t *testing.T) {
 	badChunk := chunks[1]
 	badChunk.SData = goodChunk.SData
 
-	metadata := &resourceMetadata{
-		startTime: startTime,
-		name:      "xyzzy",
-		frequency: resourceFrequency,
-		ownerAddr: signer.Address(),
+	metadata := &ResourceMetadata{
+		StartTime: startTime,
+		Name:      "xyzzy",
+		Frequency: resourceFrequency,
+		Owner:     signer.Address(),
 	}
 
 	rootChunk, metaHash, err := metadata.newChunk()
@@ -804,7 +811,7 @@ func TestValidatorInStore(t *testing.T) {
 		rootAddr: rootChunk.Addr,
 	}
 
-	updateAddr := updateLookup.GetUpdateAddr()
+	updateAddr := updateLookup.UpdateAddr()
 	data := []byte("bar")
 
 	r := SignedResourceUpdate{
@@ -820,7 +827,7 @@ func TestValidatorInStore(t *testing.T) {
 
 	r.Sign(signer)
 
-	uglyChunk, err := r.newUpdateChunk()
+	uglyChunk, err := r.toChunk()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -898,7 +905,7 @@ func getUpdateDirect(rh *Handler, addr storage.Address) ([]byte, error) {
 		return nil, err
 	}
 	var r SignedResourceUpdate
-	if err := r.parseUpdateChunk(addr, chunk.SData); err != nil {
+	if err := r.fromChunk(addr, chunk.SData); err != nil {
 		return nil, err
 	}
 	return r.data, nil

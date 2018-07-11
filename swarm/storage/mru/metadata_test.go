@@ -29,28 +29,28 @@ func compareByteSliceToExpectedHex(t *testing.T, variableName string, actualValu
 
 func TestMarshallingAndUnmarshalling(t *testing.T) {
 	ownerAddr := newCharlieSigner().Address()
-	metadata := resourceMetadata{
-		name: "world news report, every hour, on the hour",
-		startTime: Timestamp{
+	metadata := ResourceMetadata{
+		Name: "world news report, every hour, on the hour",
+		StartTime: Timestamp{
 			Time: 1528880400,
 		},
-		frequency: 3600,
-		ownerAddr: ownerAddr,
+		Frequency: 3600,
+		Owner:     ownerAddr,
 	}
 
-	rootAddr, metaHash, chunkData, err := metadata.hashAndSerialize() // creates hashes and marshals, in one go
+	rootAddr, metaHash, chunkData, err := metadata.serializeAndHash() // creates hashes and marshals, in one go
 	if err != nil {
 		t.Fatal(err)
 	}
-	const expectedRootAddr = "0xed0d5141d039eb69a3cc7d6c60ce101f6f80371074df02aedd804fca88ee21b4"
-	const expectedMetaHash = "0x1f1cf772ee37263f90af030ad37a75b08eb750a1915e428f43382192e554111a"
-	const expectedChunkData = "0x00006f0010dd205b000000000000000000000000000000000000000000000000000000000000000000000000100e0000000000002a776f726c64206e657773207265706f72742c20657665727920686f75722c206f6e2074686520686f7572876a8936a7cd0b79ef0735ad0896c1afe278781c"
+	const expectedRootAddr = "0xfb0ed7efa696bdb0b54cd75554cc3117ffc891454317df7dd6fefad978e2f2fb"
+	const expectedMetaHash = "0xf74a10ce8f26ffc8bfaa07c3031a34b2c61f517955e7deb1592daccf96c69cf0"
+	const expectedChunkData = "0x00004f0010dd205b00000000100e0000000000002a776f726c64206e657773207265706f72742c20657665727920686f75722c206f6e2074686520686f7572876a8936a7cd0b79ef0735ad0896c1afe278781c"
 
 	compareByteSliceToExpectedHex(t, "rootAddr", rootAddr, expectedRootAddr)
 	compareByteSliceToExpectedHex(t, "metaHash", metaHash, expectedMetaHash)
 	compareByteSliceToExpectedHex(t, "chunkData", chunkData, expectedChunkData)
 
-	recoveredMetadata := resourceMetadata{}
+	recoveredMetadata := ResourceMetadata{}
 	recoveredMetadata.binaryGet(chunkData)
 
 	if recoveredMetadata != metadata {

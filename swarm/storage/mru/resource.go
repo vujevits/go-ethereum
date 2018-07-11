@@ -35,7 +35,7 @@ const (
 // version of the resource data and the metadata of its root chunk.
 type resource struct {
 	resourceUpdate
-	resourceMetadata
+	ResourceMetadata
 	*bytes.Reader
 	lastKey storage.Address
 	updated time.Time
@@ -51,7 +51,7 @@ func (r *resourceUpdate) Multihash() bool {
 	return r.multihash
 }
 
-// implements (which?) interface
+// implements storage.LazySectionReader
 func (r *resource) Size(_ chan bool) (int64, error) {
 	if !r.isSynced() {
 		return 0, NewError(ErrNotSynced, "Not synced")
@@ -61,7 +61,7 @@ func (r *resource) Size(_ chan bool) (int64, error) {
 
 //returns the resource's human-readable name
 func (r *resource) Name() string {
-	return r.name
+	return r.ResourceMetadata.Name
 }
 
 // Helper function to calculate the next update period number from the current time, start time and frequency

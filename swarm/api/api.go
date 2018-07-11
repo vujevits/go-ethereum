@@ -655,7 +655,7 @@ func (a *API) BuildDirectoryTree(ctx context.Context, mhash string, nameresolver
 	return addr, manifestEntryMap, nil
 }
 
-// Look up mutable resource updates at specific periods and versions
+// ResourceLookup finds mutable resource updates at specific periods and versions
 func (a *API) ResourceLookup(ctx context.Context, params *mru.LookupParams) (string, []byte, error) {
 	var err error
 	rsrc, err := a.resource.Load(params.RootAddr())
@@ -674,33 +674,20 @@ func (a *API) ResourceLookup(ctx context.Context, params *mru.LookupParams) (str
 	return rsrc.Name(), data, nil
 }
 
-func (a *API) ResourceCreate(ctx context.Context, mru *mru.Request) (storage.Address, error) {
-	err := a.resource.New(ctx, mru)
-	if err != nil {
-		return nil, err
-	}
-	return mru.RootAddr(), nil
+// Create Mutable resource
+func (a *API) ResourceCreate(ctx context.Context, request *mru.Request) error {
+	return a.resource.New(ctx, request)
 }
 
-// ResourceUpdateMultihash updates a Mutable Resource and marks the update's content to be of multihash type, which will be recognized upon retrieval.
-// It will fail if the data is not a valid multihash.
+// ResourceNewRequest creates a Request object to update a specific mutable resource
 func (a *API) ResourceNewRequest(ctx context.Context, rootAddr storage.Address) (*mru.Request, error) {
 	return a.resource.NewUpdateRequest(ctx, rootAddr)
 }
 
 // ResourceUpdate updates a Mutable Resource with arbitrary data.
 // Upon retrieval the update will be retrieved verbatim as bytes.
-func (a *API) ResourceUpdate(ctx context.Context, rootAddr storage.Address, mru *mru.SignedResourceUpdate) (storage.Address, uint32, uint32, error) {
-	return a.resourceUpdate(ctx, rootAddr, mru)
-}
-
-func (a *API) resourceUpdate(ctx context.Context, rootAddr storage.Address, mru *mru.SignedResourceUpdate) (storage.Address, uint32, uint32, error) {
-	var updateAddr storage.Address
-	var err error
-	updateAddr, err = a.resource.Update(ctx, rootAddr, mru)
-	period, _ := a.resource.GetLastPeriod(rootAddr)
-	version, _ := a.resource.GetVersion(rootAddr)
-	return updateAddr, period, version, err
+func (a *API) ResourceUpdate(ctx context.Context, request *mru.SignedResourceUpdate) (storage.Address, error) {
+	return a.resource.Update(ctx, request)
 }
 
 // ResourceHashSize returned the size of the digest produced by the Mutable Resource hashing function

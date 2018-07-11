@@ -28,32 +28,37 @@ import (
 
 // updateRequestJSON represents a JSON-serialized UpdateRequest
 type updateRequestJSON struct {
-	Name           string `json:"name,omitempty"`
-	Frequency      uint64 `json:"frequency,omitempty"`
-	StartTime      uint64 `json:"startTime,omitempty"`
-	StartTimeProof string `json:"startTimeProof,omitempty"`
-	OwnerAddr      string `json:"ownerAddr,omitempty"`
-	RootAddr       string `json:"rootAddr,omitempty"`
-	MetaHash       string `json:"metaHash,omitempty"`
-	Version        uint32 `json:"version"`
-	Period         uint32 `json:"period"`
-	Data           string `json:"data,omitempty"`
-	Multihash      bool   `json:"multiHash"`
-	Signature      string `json:"signature,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Frequency uint64 `json:"frequency,omitempty"`
+	StartTime uint64 `json:"startTime,omitempty"`
+	Owner     string `json:"ownerAddr,omitempty"`
+	RootAddr  string `json:"rootAddr,omitempty"`
+	MetaHash  string `json:"metaHash,omitempty"`
+	Version   uint32 `json:"version"`
+	Period    uint32 `json:"period"`
+	Data      string `json:"data,omitempty"`
+	Multihash bool   `json:"multiHash"`
+	Signature string `json:"signature,omitempty"`
 }
 
 // Request represents an update and/or resource create message
 type Request struct {
 	SignedResourceUpdate
-	resourceMetadata
+	metadata ResourceMetadata
 }
 
+var zeroAddr = common.Address{}
+
 // NewCreateRequest returns a ready to sign Request message to create a new resource
-func NewCreateRequest(name string, frequency uint64, startTime uint64, ownerAddr common.Address, data []byte, multihash bool) (*Request, error) {
+func NewCreateRequest(metadata *ResourceMetadata) (*Request, error) {
 
 	// get the current time
-	if startTime == 0 {
-		startTime = uint64(time.Now().Unix())
+	if metadata.StartTime.Time == 0 {
+		metadata.StartTime.Time = uint64(time.Now().Unix())
+	}
+
+	if metadata.Owner == zeroAddr {
+		return nil, NewError(ErrInvalidValue, "OwnerAddr is not set")
 	}
 
 	request := &Request{
@@ -64,35 +69,28 @@ func NewCreateRequest(name string, frequency uint64, startTime uint64, ownerAddr
 						version: 1,
 						period:  1,
 					},
-					multihash: multihash,
 				},
-				data: data,
 			},
 		},
-		resourceMetadata: resourceMetadata{
-			name:      name,
-			frequency: frequency,
-			startTime: Timestamp{Time: startTime},
-			ownerAddr: ownerAddr,
-		},
+		metadata: *metadata,
 	}
 
 	var err error
-	request.rootAddr, request.metaHash, _, err = request.resourceMetadata.hashAndSerialize()
+	request.rootAddr, request.metaHash, _, err = request.metadata.serializeAndHash()
 	if err != nil {
 		return nil, err
 	}
 	return request, nil
 }
 
-// Frequency Returns the resource expected update frequency
+// Frequency returns the resource's expected update frequency
 func (r *Request) Frequency() uint64 {
-	return r.frequency
+	return r.metadata.Frequency
 }
 
 // Name returns the resource human-readable name
 func (r *Request) Name() string {
-	return r.name
+	return r.metadata.Name
 }
 
 // Multihash returns true if the resource data should be interpreted as a multihash
@@ -117,67 +115,64 @@ func (r *Request) RootAddr() storage.Address {
 
 // StartTime returns the time that the resource was/will be created at
 func (r *Request) StartTime() Timestamp {
-	return r.startTime
+	return r.metadata.StartTime
 }
 
-// OwnerAddr returns the resource owner's address
-func (r *Request) OwnerAddr() common.Address {
-	return r.ownerAddr
+// Owner returns the resource owner's address
+func (r *Request) Owner() common.Address {
+	return r.metadata.Owner
 }
 
 // Sign executes the signature to validate the resource and sets the owner address field
 func (r *Request) Sign(signer Signer) error {
+	if r.metadata.Owner != zeroAddr && r.metadata.Owner != signer.Address() {
+		return NewError(ErrInvalidSignature, "Signer does not match current owner of the resource")
+	}
+
 	if err := r.SignedResourceUpdate.Sign(signer); err != nil {
 		return err
 	}
-	r.ownerAddr = signer.Address()
+	r.metadata.Owner = signer.Address()
 	return nil
 }
 
 // SetData stores the payload data the resource will be updated with
-func (r *Request) SetData(data []byte) {
-	r.signature = nil
+func (r *Request) SetData(data []byte, multihash bool) {
 	r.data = data
-	r.frequency = 0 //mark as update
+	r.multihash = multihash
+	r.signature = nil
+	if r.period != 1 || r.version != 1 {
+		r.metadata.Frequency = 0 // mark as update if this is not the first request
+	}
 }
 
-// decode takes an update request JSON and returns an UpdateRequest
-func (j *updateRequestJSON) decode() (*Request, error) {
+func (r *Request) IsNew() bool {
+	return r.metadata.Frequency > 0 && (r.period <= 1 || r.version <= 1)
+}
 
-	r := &Request{
-		SignedResourceUpdate: SignedResourceUpdate{
-			resourceUpdate: resourceUpdate{
-				updateHeader: updateHeader{
-					UpdateLookup: UpdateLookup{
-						version: j.Version,
-						period:  j.Period,
-					},
-					multihash: j.Multihash,
-				},
-			},
-		},
-		resourceMetadata: resourceMetadata{
-			name:      j.Name,
-			frequency: j.Frequency,
-			startTime: Timestamp{
-				Time: j.StartTime,
-			},
-		},
-	}
+func (r *Request) IsUpdate() bool {
+	return r.signature != nil
+}
 
-	if err := decodeHexArray(r.startTime.Proof[:], j.StartTimeProof, common.HashLength, "startTimeProof"); err != nil {
-		return nil, err
-	}
+// fromJSON takes an update request JSON and populates an UpdateRequest
+func (r *Request) fromJSON(j *updateRequestJSON) error {
 
-	if err := decodeHexArray(r.ownerAddr[:], j.OwnerAddr, common.AddressLength, "ownerAddr"); err != nil {
-		return nil, err
+	r.version = j.Version
+	r.period = j.Period
+	r.multihash = j.Multihash
+	r.metadata.Name = j.Name
+	r.metadata.Frequency = j.Frequency
+	r.metadata.StartTime.Time = j.StartTime
+
+	if err := decodeHexArray(r.metadata.Owner[:], j.Owner, "ownerAddr"); err != nil {
+		return err
 	}
 
 	var err error
 	if j.Data != "" {
 		r.data, err = hexutil.Decode(j.Data)
 		if err != nil {
-			return nil, NewError(ErrInvalidValue, "Cannot decode data")
+			return NewError(ErrInvalidValue, "Cannot decode data")
 		}
 	}
 
@@ -186,28 +181,27 @@ func (j *updateRequestJSON) decode() (*Request, error) {
 
 	declaredRootAddr, err = decodeHexSlice(j.RootAddr, storage.KeyLength, "rootAddr")
 	if err != nil {
-		return nil, err
+		return err
 	}
-
 	declaredMetaHash, err = decodeHexSlice(j.MetaHash, 32, "metaHash")
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	if r.frequency > 0 { // we use frequency > 0 to know it is a new resource creation
+	if r.IsNew() {
 		// for new resource creation, rootAddr and metaHash are optional because
 		// we can derive them from the content itself.
 		// however, if the user sent them, we check them for consistency.
 
-		r.rootAddr, r.metaHash, _, err = r.resourceMetadata.hashAndSerialize()
+		r.rootAddr, r.metaHash, _, err = r.metadata.serializeAndHash()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if j.RootAddr != "" && !bytes.Equal(declaredRootAddr, r.rootAddr) {
-			return nil, NewError(ErrInvalidValue, "rootAddr does not match resource metadata")
+			return NewError(ErrInvalidValue, "rootAddr does not match resource metadata")
 		}
 		if j.MetaHash != "" && !bytes.Equal(declaredMetaHash, r.metaHash) {
-			return nil, NewError(ErrInvalidValue, "metaHash does not match resource metadata")
+			return NewError(ErrInvalidValue, "metaHash does not match resource metadata")
 		}
 
 	} else {
@@ -219,17 +213,17 @@ func (j *updateRequestJSON) decode() (*Request, error) {
 	if j.Signature != "" {
 		sigBytes, err := hexutil.Decode(j.Signature)
 		if err != nil || len(sigBytes) != signatureLength {
-			return nil, NewError(ErrInvalidSignature, "Cannot decode signature")
+			return NewError(ErrInvalidSignature, "Cannot decode signature")
 		}
 		r.signature = new(Signature)
-		r.updateAddr = r.GetUpdateAddr()
+		r.updateAddr = r.UpdateAddr()
 		copy(r.signature[:], sigBytes)
 	}
-	return r, nil
+	return nil
 }
 
-func decodeHexArray(dst []byte, src string, expectedLength int, name string) error {
-	bytes, err := decodeHexSlice(src, expectedLength, name)
+func decodeHexArray(dst []byte, src, name string) error {
+	bytes, err := decodeHexSlice(src, len(dst), name)
 	if err != nil {
 		return err
 	}
@@ -249,56 +243,51 @@ func decodeHexSlice(src string, expectedLength int, name string) (bytes []byte, 
 	return bytes, nil
 }
 
-// DecodeUpdateRequest takes a JSON structure stored in a byte array and returns a live UpdateRequest object
-func DecodeUpdateRequest(rawData []byte) (*Request, error) {
+// UnmarshalJSON takes a JSON structure stored in a byte array and populates the Request object
+// Implements json.Unmarshaler interface
+func (r *Request) UnmarshalJSON(rawData []byte) error {
 	var requestJSON updateRequestJSON
 	if err := json.Unmarshal(rawData, &requestJSON); err != nil {
-		return nil, err
+		return err
 	}
-	return requestJSON.decode()
+	return r.fromJSON(&requestJSON)
 }
 
-// EncodeUpdateRequest takes an update request and encodes it as a JSON structure into a byte array
-func EncodeUpdateRequest(updateRequest *Request) (rawData []byte, err error) {
+// MarshalJSON takes an update request and encodes it as a JSON structure into a byte array
+// Implements json.Marshaler interface
+func (r *Request) MarshalJSON() (rawData []byte, err error) {
 	var signatureString, dataHashString, rootAddrString, metaHashString string
-	if updateRequest.signature != nil {
-		signatureString = hexutil.Encode(updateRequest.signature[:])
+	if r.signature != nil {
+		signatureString = hexutil.Encode(r.signature[:])
 	}
-	if updateRequest.data != nil {
-		dataHashString = hexutil.Encode(updateRequest.data)
+	if r.data != nil {
+		dataHashString = hexutil.Encode(r.data)
 	}
-	if updateRequest.rootAddr != nil {
-		rootAddrString = hexutil.Encode(updateRequest.rootAddr)
+	if r.rootAddr != nil {
+		rootAddrString = hexutil.Encode(r.rootAddr)
 	}
-	if updateRequest.metaHash != nil {
-		metaHashString = hexutil.Encode(updateRequest.metaHash)
+	if r.metaHash != nil {
+		metaHashString = hexutil.Encode(r.metaHash)
 	}
 	var ownerAddrString string
-	if updateRequest.frequency == 0 {
+	if r.metadata.Frequency == 0 {
 		ownerAddrString = ""
 	} else {
-		ownerAddrString = hexutil.Encode(updateRequest.ownerAddr[:])
-	}
-	var startTimeProofString string
-	if updateRequest.startTime.Time == 0 {
-		startTimeProofString = ""
-	} else {
-		startTimeProofString = hexutil.Encode(updateRequest.startTime.Proof[:])
+		ownerAddrString = hexutil.Encode(r.metadata.Owner[:])
 	}
 
 	requestJSON := &updateRequestJSON{
-		Name:           updateRequest.name,
-		Frequency:      updateRequest.frequency,
-		StartTime:      updateRequest.startTime.Time,
-		StartTimeProof: startTimeProofString,
-		Version:        updateRequest.version,
-		Period:         updateRequest.period,
-		OwnerAddr:      ownerAddrString,
-		Data:           dataHashString,
-		Multihash:      updateRequest.multihash,
-		Signature:      signatureString,
-		RootAddr:       rootAddrString,
-		MetaHash:       metaHashString,
+		Name:      r.metadata.Name,
+		Frequency: r.metadata.Frequency,
+		StartTime: r.metadata.StartTime.Time,
+		Version:   r.version,
+		Period:    r.period,
+		Owner:     ownerAddrString,
+		Data:      dataHashString,
+		Multihash: r.multihash,
+		Signature: signatureString,
+		RootAddr:  rootAddrString,
+		MetaHash:  metaHashString,
 	}
 
 	return json.Marshal(requestJSON)

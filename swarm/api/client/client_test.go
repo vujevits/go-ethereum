@@ -394,12 +394,27 @@ func TestClientCreateResourceMultihash(t *testing.T) {
 	// our mutable resource "name"
 	resourceName := "foo.eth"
 
-	resourceManifestHash, err := client.CreateResource(resourceName, 13, srv.GetCurrentTime().Time, mh, true, signer)
+	createRequest, err := mru.NewCreateRequest(&mru.ResourceMetadata{
+		Name:      resourceName,
+		Frequency: 13,
+		StartTime: srv.GetCurrentTime(),
+		Owner:     signer.Address(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createRequest.SetData(mh, true)
+	if err := createRequest.Sign(signer); err != nil {
+		t.Fatalf("Error signing update: %s", err)
+	}
+
+	resourceManifestHash, err := client.CreateResource(createRequest)
+
 	if err != nil {
 		t.Fatalf("Error creating resource: %s", err)
 	}
 
-	correctManifestAddrHex := "19e911ba30608cc70af7cad3776501366a7ccf818025f2b3010794d9d66d7eb5"
+	correctManifestAddrHex := "6d3bc4664c97d8b821cb74bcae43f592494fb46d2d9cd31e69f3c7c802bbbd8e"
 	if resourceManifestHash != correctManifestAddrHex {
 		t.Fatalf("Response resource key mismatch, expected '%s', got '%s'", correctManifestAddrHex, resourceManifestHash)
 	}
@@ -419,6 +434,7 @@ func TestClientCreateResourceMultihash(t *testing.T) {
 
 }
 
+// TestClientCreateUpdateResource will check that mutable resources can be created and updated via the HTTP client.
 func TestClientCreateUpdateResource(t *testing.T) {
 
 	signer, _ := newTestSigner()
@@ -433,12 +449,23 @@ func TestClientCreateUpdateResource(t *testing.T) {
 	// our mutable resource name
 	resourceName := "El Quijote"
 
-	resourceManifestHash, err := client.CreateResource(resourceName, 13, srv.GetCurrentTime().Time, databytes, false, signer)
+	createRequest, err := mru.NewCreateRequest(&mru.ResourceMetadata{
+		Name:      resourceName,
+		Frequency: 13,
+		StartTime: srv.GetCurrentTime(),
+		Owner:     signer.Address(),
+	})
 	if err != nil {
-		t.Fatalf("Error creating resource: %s", err)
+		t.Fatal(err)
+	}
+	createRequest.SetData(databytes, false)
+	if err := createRequest.Sign(signer); err != nil {
+		t.Fatalf("Error signing update: %s", err)
 	}
 
-	correctManifestAddrHex := "a09bdcc9e0e4762e01d3e0a69a00f673fa67e8ac17e647043ce07672424ba014"
+	resourceManifestHash, err := client.CreateResource(createRequest)
+
+	correctManifestAddrHex := "cc7904c17b49f9679e2d8006fe25e87e3f5c2072c2b49cab50f15e544471b30a"
 	if resourceManifestHash != correctManifestAddrHex {
 		t.Fatalf("Response resource key mismatch, expected '%s', got '%s'", correctManifestAddrHex, resourceManifestHash)
 	}
@@ -459,7 +486,17 @@ func TestClientCreateUpdateResource(t *testing.T) {
 	// define different data
 	databytes = []byte("... no ha mucho tiempo que vivía un hidalgo de los de lanza en astillero ...")
 
-	if err = client.UpdateResource(correctManifestAddrHex, databytes, signer); err != nil {
+	updateRequest, err := client.GetResourceMetadata(correctManifestAddrHex)
+	if err != nil {
+		t.Fatalf("Error retrieving update request template: %s", err)
+	}
+
+	updateRequest.SetData(databytes, false)
+	if err := updateRequest.Sign(signer); err != nil {
+		t.Fatalf("Error signing update: %s", err)
+	}
+
+	if err = client.UpdateResource(updateRequest); err != nil {
 		t.Fatalf("Error updating resource: %s", err)
 	}
 

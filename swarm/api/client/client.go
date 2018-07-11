@@ -569,18 +569,8 @@ func (c *Client) MultipartUpload(hash string, uploader Uploader) (string, error)
 // startTime=0 means "now"
 // Returns the resulting Mutable Resource manifest address that you can use to include in an ENS Resolver (setContent)
 // or reference future updates (Client.UpdateResource)
-func (c *Client) CreateResource(name string, frequency, startTime uint64, data []byte, multihash bool, signer mru.Signer) (string, error) {
-	createRequest, err := mru.NewCreateRequest(name, frequency, startTime, signer.Address(), data, multihash)
-	if err != nil {
-		return "", err
-	}
-
-	createRequest.Sign(signer)
-	if err != nil {
-		return "", err
-	}
-
-	responseStream, err := c.updateResource(createRequest, "")
+func (c *Client) CreateResource(request *mru.Request) (string, error) {
+	responseStream, err := c.updateResource(request)
 	if err != nil {
 		return "", err
 	}
@@ -591,38 +581,26 @@ func (c *Client) CreateResource(name string, frequency, startTime uint64, data [
 		return "", err
 	}
 
-	var manifestKey string
-	if err = json.Unmarshal(body, &manifestKey); err != nil {
+	var manifestAddress string
+	if err = json.Unmarshal(body, &manifestAddress); err != nil {
 		return "", err
 	}
-	return manifestKey, nil
+	return manifestAddress, nil
 }
 
 // UpdateResource allows you to send a new version of your content
-// manifestAddressOrDomain is the address you obtained in CreateResource or an ENS domain whose Resolver
-// points to that address
-func (c *Client) UpdateResource(manifestAddressOrDomain string, data []byte, signer mru.Signer) error {
-	updateRequest, err := c.GetResourceMetadata(manifestAddressOrDomain)
-	if err != nil {
-		return err
-	}
-	updateRequest.SetData(data)
-	updateRequest.Sign(signer)
-	if err != nil {
-		return err
-	}
-
-	_, err = c.updateResource(updateRequest, manifestAddressOrDomain)
+func (c *Client) UpdateResource(request *mru.Request) error {
+	_, err := c.updateResource(request)
 	return err
 }
 
-func (c *Client) updateResource(updateRequest *mru.Request, manifestAddressOrDomain string) (io.ReadCloser, error) {
-	body, err := mru.EncodeUpdateRequest(updateRequest)
+func (c *Client) updateResource(request *mru.Request) (io.ReadCloser, error) {
+	body, err := request.MarshalJSON()
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", c.Gateway+"/bzz-resource:/"+manifestAddressOrDomain, bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", c.Gateway+"/bzz-resource:/", bytes.NewBuffer(body))
 	if err != nil {
 		return nil, err
 	}
@@ -665,9 +643,9 @@ func (c *Client) GetResourceMetadata(manifestAddressOrDomain string) (*mru.Reque
 		return nil, err
 	}
 
-	metadata, err := mru.DecodeUpdateRequest(body)
-	if err != nil {
+	var metadata mru.Request
+	if err := metadata.UnmarshalJSON(body); err != nil {
 		return nil, err
 	}
-	return metadata, nil
+	return &metadata, nil
 }
