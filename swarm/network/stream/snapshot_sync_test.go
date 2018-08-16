@@ -73,8 +73,8 @@ func TestSyncingViaGlobalSync(t *testing.T) {
 			nodeCnt = []int{16, 32, 64, 128, 256}
 		} else {
 			//default test
-			chnkCnt = []int{4, 32}
-			nodeCnt = []int{32, 16}
+			chnkCnt = []int{32}
+			nodeCnt = []int{16}
 		}
 		for _, chnk := range chnkCnt {
 			for _, n := range nodeCnt {
@@ -334,6 +334,7 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 	}
 
 	result := sim.Run(ctx, func(ctx context.Context, sim *simulation.Simulation) error {
+		log.Warn("Run...")
 		nodeIDs := sim.UpNodeIDs()
 		for _, n := range nodeIDs {
 			//get the kademlia overlay address from this ID
@@ -350,9 +351,8 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 
 		filter := simulation.NewPeerEventsFilter().Type(p2p.PeerEventTypeMsgRecv).Protocol("stream").MsgCode(4)
 		eventC := sim.PeerEvents(ctx, nodeIDs, filter)
-
 		for j, node := range nodeIDs {
-			log.Trace(fmt.Sprintf("Start syncing subscriptions: %d", j))
+			log.Warn(fmt.Sprintf("Start syncing subscriptions: %d", j))
 			//start syncing!
 			item, ok := sim.NodeItem(node, bucketKeyRegistry)
 			if !ok {
@@ -385,6 +385,7 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 		if !ok {
 			return fmt.Errorf("No localstore")
 		}
+		log.Warn("uploading...")
 		lstore := item.(*storage.LocalStore)
 		hashes, err := uploadFileToSingleNodeStore(node.ID, chunkCount, lstore)
 		if err != nil {
@@ -393,10 +394,11 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 		conf.hashes = append(conf.hashes, hashes...)
 		mapKeysToNodes(conf)
 
+		log.Warn("wait till healthy...")
 		if _, err := sim.WaitTillHealthy(ctx, 2); err != nil {
 			return err
 		}
-
+		log.Warn("wait till healthy done")
 		var gDir string
 		var globalStore *mockdb.GlobalStore
 		if *useMockStore {

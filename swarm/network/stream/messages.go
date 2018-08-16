@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	bv "github.com/ethereum/go-ethereum/swarm/network/bitvector"
@@ -205,16 +207,20 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 	}
 	ctr := 0
 	errC := make(chan error)
-	ctx, cancel := context.WithTimeout(context.Background(), syncBatchTimeout)
+	ctx, cancel := context.WithTimeout(ctx, syncBatchTimeout)
 	ctx = context.WithValue(ctx, "source", p.ID().String())
 	for i := 0; i < len(hashes); i += HashSize {
 		hash := hashes[i : i+HashSize]
+		log.Warn("hash is offered", "hash", common.Bytes2Hex(hash), "peer", p.ID(), "addr", p.streamer.addr.ID())
 		if wait := c.NeedData(ctx, hash); wait != nil {
 			ctr++
 			want.Set(i/HashSize, true)
 			// create request and wait until the chunk data arrives and is stored
 			go func(w func(context.Context) error) {
-				errC <- w(ctx)
+				select {
+				case errC <- w(ctx):
+				case <-c.quit:
+				}
 			}(wait)
 		}
 	}
@@ -225,19 +231,23 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 			select {
 			case err := <-errC:
 				if err != nil {
-					log.Error("client.handleOfferedHashesMsg() error waiting for chunk", "err", err)
+					log.Error("client.handleOfferedHashesMsg() error waiting for chunk", "err", err, "peer", p.ID(), "addr", p.streamer.addr.ID())
+					p.Drop(err)
 				}
-			case <-ctx.Done():
-				log.Error("client.handleOfferedHashesMsg() timeout waiting for chunk, dropping peer", "ctx.Err()", ctx.Err())
-				p.Drop(ctx.Err())
+			case <-c.quit:
 				return
 			}
+			// case <-ctx.Done():
+			// 	log.Error("client.handleOfferedHashesMsg() timeout waiting for chunk, dropping peer", "ctx.Err()", ctx.Err(), "addr", p.streamer.addr.ID())
+			// 	p.Drop(ctx.Err())
+			// 	return
+			// }
 		}
 		select {
 		case c.next <- c.batchDone(p, req, hashes):
 		case <-c.quit:
 		case <-ctx.Done():
-			log.Error("client.handleOfferedHashesMsg() timeout waiting for batchDone, dropping peer", "ctx.Err()", ctx.Err())
+			log.Error("client.handleOfferedHashesMsg() timeout waiting for batchDone, dropping peer", "ctx.Err()", ctx.Err(), "peer", p.ID(), "addr", p.streamer.addr.ID())
 			p.Drop(ctx.Err())
 		}
 	}()
@@ -315,7 +325,6 @@ func (p *Peer) handleWantedHashesMsg(ctx context.Context, req *WantedHashesMsg) 
 			p.Drop(err)
 		}
 	}()
-	// go p.SendOfferedHashes(s, req.From, req.To)
 	l := len(hashes) / HashSize
 
 	log.Trace("wanted batch length", "peer", p.ID(), "stream", req.Stream, "from", req.From, "to", req.To, "lenhashes", len(hashes), "l", l)
@@ -328,6 +337,7 @@ func (p *Peer) handleWantedHashesMsg(ctx context.Context, req *WantedHashesMsg) 
 			metrics.GetOrRegisterCounter("peer.handlewantedhashesmsg.actualget", nil).Inc(1)
 
 			hash := hashes[i*HashSize : (i+1)*HashSize]
+			log.Warn("hash is wanted", "hash", common.Bytes2Hex(hash), "peer", p.ID(), "addr", p.streamer.addr.ID())
 			data, err := s.GetData(ctx, hash)
 			if err != nil {
 				return fmt.Errorf("handleWantedHashesMsg get data %x: %v", hash, err)

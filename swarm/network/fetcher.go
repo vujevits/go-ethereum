@@ -43,6 +43,7 @@ type Fetcher struct {
 	offerC           chan *discover.NodeID // channel of sources (peer node id strings)
 	requestC         chan struct{}
 	skipCheck        bool
+	NetstoreId       int
 }
 
 type Request struct {
@@ -183,6 +184,10 @@ func (f *Fetcher) run(ctx context.Context, peers *sync.Map) {
 	}
 }
 
+func (f *Fetcher) SetNetstoreId(id int) {
+	f.NetstoreId = id
+}
+
 // doRequest attempts at finding a peer to request the chunk from
 // * first it tries to request explicitly from peers that are known to have offered the chunk
 // * if there are no such peers (available) it tries to request it from a peer closest to the chunk address
@@ -203,7 +208,7 @@ func (f *Fetcher) doRequest(ctx context.Context, gone chan *discover.NodeID, pee
 		SkipCheck:   f.skipCheck,
 		PeersToSkip: peersToSkip,
 	}
-
+	log.Warn("NetFetcher requesting", "chunkaddr", f.addr, "netstore", f.NetstoreId)
 	foundSource := false
 	// iterate over known sources
 	for i = 0; i < len(sources); i++ {

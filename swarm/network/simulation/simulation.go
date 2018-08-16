@@ -195,7 +195,9 @@ func (s *Simulation) Close() {
 			cleanup()
 		}(cleanup)
 	}
+	log.Warn("cleaning up")
 	cleanupWG.Wait()
+	log.Warn("cleaning up ok")
 
 	if s.httpSrv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
