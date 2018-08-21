@@ -194,6 +194,7 @@ type ChunkDeliveryMsg struct {
 // TODO: Fix context SNAFU
 func (d *Delivery) handleChunkDeliveryMsg(_ context.Context, sp *Peer, req *ChunkDeliveryMsg) error {
 	processReceivedChunksCount.Inc(1)
+	log.Warn("chunk delievered", "hash", req.Addr, "peer", sp.ID(), "addr", sp.streamer.addr.ID())
 	go func() {
 		req.peer = sp
 		err := d.chunkStore.Put(context.TODO(), storage.NewChunk(req.Addr, req.SData))

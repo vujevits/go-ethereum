@@ -44,6 +44,7 @@ type Fetcher struct {
 	requestC         chan struct{}
 	skipCheck        bool
 	NetstoreId       int
+	cancelC          chan struct{}
 }
 
 type Request struct {
@@ -97,6 +98,10 @@ func (f *Fetcher) Offer(ctx context.Context, source *discover.NodeID) {
 	}
 }
 
+func (f *Fetcher) Cancel() {
+	close(f.cancelC)
+}
+
 // fetch is called by NetStore evey time there is a request or offer for a chunk
 func (f *Fetcher) Request(ctx context.Context) {
 	select {
@@ -126,6 +131,8 @@ func (f *Fetcher) run(ctx context.Context, peers *sync.Map) {
 	for {
 		select {
 
+		// case <-f.cancelC:
+		// 	return
 		// incoming offer
 		case source := <-f.offerC:
 			log.Debug("new source", "peer addr", source, "request addr", f.addr)
@@ -158,8 +165,12 @@ func (f *Fetcher) run(ctx context.Context, peers *sync.Map) {
 
 			// all Fetcher context closed, can quit
 		case <-ctx.Done():
-			log.Debug("terminate fetcher", "request addr", f.addr)
+			log.Warn("terminate fetcher", "err", ctx.Err(), "request addr", f.addr)
 			// TODO: send cancelations to all peers left over in peers map (i.e., those we requested from)
+			peers.Range(func(key interface{}, _ interface{}) bool {
+				log.Warn("peer found in terminated fetcher", "peer", key)
+				return true
+			})
 			return
 		}
 

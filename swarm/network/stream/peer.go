@@ -104,6 +104,7 @@ func (p *Peer) Deliver(ctx context.Context, chunk storage.Chunk, priority uint8)
 		Addr:  chunk.Address(),
 		SData: chunk.Data(),
 	}
+	log.Warn("delivering chunk", "chunk", chunk.Address(), "peer", p.ID(), "addr", p.streamer.addr.ID())
 	return p.SendPriority(ctx, msg, priority)
 }
 

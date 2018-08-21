@@ -190,6 +190,7 @@ func (m OfferedHashesMsg) String() string {
 func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg) error {
 	metrics.GetOrRegisterCounter("peer.handleofferedhashes", nil).Inc(1)
 
+	log.Warn("handleOfferedHashes starting", "peer", p.ID(), "addr", p.streamer.addr.ID())
 	var sp opentracing.Span
 	ctx, sp = spancontext.StartSpan(
 		ctx,
@@ -211,8 +212,9 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 	ctx = context.WithValue(ctx, "source", p.ID().String())
 	for i := 0; i < len(hashes); i += HashSize {
 		hash := hashes[i : i+HashSize]
-		log.Warn("hash is offered", "hash", common.Bytes2Hex(hash), "peer", p.ID(), "addr", p.streamer.addr.ID())
-		if wait := c.NeedData(ctx, hash); wait != nil {
+		wait := c.NeedData(ctx, hash)
+		log.Warn("hash is offered", "hash", common.Bytes2Hex(hash), "peer", p.ID(), "addr", p.streamer.addr.ID(), "wait", (wait == nil))
+		if wait != nil {
 			ctr++
 			want.Set(i/HashSize, true)
 			// create request and wait until the chunk data arrives and is stored
@@ -224,6 +226,7 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 			}(wait)
 		}
 	}
+	log.Warn("handleOfferedHashes offers set", "peer", p.ID(), "addr", p.streamer.addr.ID())
 
 	go func() {
 		defer cancel()
@@ -258,6 +261,7 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 	}
 	from, to := c.nextBatch(req.To + 1)
 	log.Trace("received offered batch", "peer", p.ID(), "stream", req.Stream, "from", req.From, "to", req.To)
+	log.Warn("handleOfferedHashes received offered batch", "peer", p.ID(), "addr", p.streamer.addr.ID())
 	if from == to {
 		return nil
 	}
@@ -284,12 +288,14 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 			return
 		}
 		log.Trace("sending want batch", "peer", p.ID(), "stream", msg.Stream, "from", msg.From, "to", msg.To)
+		log.Warn("handleOfferedHashes sending want batch", "peer", p.ID(), "addr", p.streamer.addr.ID(), "stream", msg.Stream, "from", msg.From, "to", msg.To)
 		err := p.SendPriority(ctx, msg, c.priority)
 		if err != nil {
 			log.Warn("SendPriority err, so dropping peer", "err", err)
 			p.Drop(err)
 		}
 	}()
+	log.Warn("handleOfferedHashes done", "peer", p.ID(), "addr", p.streamer.addr.ID())
 	return nil
 }
 
@@ -312,7 +318,7 @@ func (m WantedHashesMsg) String() string {
 func (p *Peer) handleWantedHashesMsg(ctx context.Context, req *WantedHashesMsg) error {
 	metrics.GetOrRegisterCounter("peer.handlewantedhashesmsg", nil).Inc(1)
 
-	log.Trace("received wanted batch", "peer", p.ID(), "stream", req.Stream, "from", req.From, "to", req.To)
+	log.Warn("handleWantedHashesMsg received wanted batch", "peer", p.ID(), "stream", req.Stream, "from", req.From, "to", req.To, "addr", p.streamer.addr.ID())
 	s, err := p.getServer(req.Stream)
 	if err != nil {
 		return err

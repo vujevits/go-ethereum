@@ -104,8 +104,8 @@ func TestSyncingViaDirectSubscribe(t *testing.T) {
 			nodeCnt = []int{32, 16}
 		} else {
 			//default test
-			chnkCnt = []int{4, 32}
-			nodeCnt = []int{32, 16}
+			chnkCnt = []int{32, 32}
+			nodeCnt = []int{16, 16}
 		}
 		for _, chnk := range chnkCnt {
 			for _, n := range nodeCnt {
@@ -292,15 +292,13 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 				return nil, nil, err
 			}
 			bucket.Store(bucketKeyStore, store)
-			cleanup = func() {
-				os.RemoveAll(datadir)
-				store.Close()
-			}
+
 			localStore := store.(*storage.LocalStore)
 			netStore, err := storage.NewSyncNetStore(localStore, nil)
 			if err != nil {
 				return nil, nil, err
 			}
+
 			kad := network.NewKademlia(addr.Over(), network.NewKadParams())
 			delivery := NewDelivery(kad, netStore)
 			netStore.NewNetFetcherFunc = network.NewFetcherFactory(delivery.RequestFromPeers, true).New
@@ -311,11 +309,17 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 			fileStore := storage.NewFileStore(netStore, storage.NewFileStoreParams())
 			bucket.Store(bucketKeyFileStore, fileStore)
 
+			cleanup = func() {
+				os.RemoveAll(datadir)
+				netStore.Close()
+				r.Close()
+			}
+
 			return r, cleanup, nil
 
 		},
 	})
-	defer sim.Close()
+	// defer sim.Close()
 
 	ctx, cancelSimRun := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancelSimRun()
@@ -457,7 +461,10 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 		return result.Error
 	}
 
-	log.Info("Simulation terminated")
+	log.Warn("Simulation terminating....")
+	sim.Close()
+	log.Warn("Simulation terminated")
+	// time.Sleep(10 * time.Second)
 	return nil
 }
 

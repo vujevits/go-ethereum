@@ -49,6 +49,9 @@ func (m *mockNetFetcher) Request(ctx context.Context) {
 	m.peersPerRequest = append(m.peersPerRequest, peers)
 }
 
+func (m *mockNetFetcher) SetNetstoreId(id int) {
+}
+
 type mockNetFetchFuncFactory struct {
 	fetcher *mockNetFetcher
 }

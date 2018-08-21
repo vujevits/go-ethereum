@@ -37,6 +37,7 @@ type (
 type NetFetcher interface {
 	Request(ctx context.Context)
 	Offer(ctx context.Context, source *discover.NodeID)
+	Cancel()
 }
 
 type WithNetStoreId interface {
@@ -63,12 +64,13 @@ func NewNetStore(store ChunkStore, nnf NewNetFetcherFunc) (*NetStore, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	id := rand.Intn(100000)
+	log.Warn("new netstore", "id", id)
 	return &NetStore{
 		store:             store,
 		fetchers:          fetchers,
 		NewNetFetcherFunc: nnf,
-		id:                rand.Intn(10000),
+		id:                id,
 	}, nil
 }
 
@@ -126,6 +128,15 @@ func (n *NetStore) Has(ctx context.Context, ref Address) func(context.Context) e
 // Close chunk store
 func (n *NetStore) Close() {
 	n.store.Close()
+	log.Warn("closing netstore", "netstore", n.id, "fetcherslen", n.fetchers.Len())
+	for _, key := range n.fetchers.Keys() {
+		log.Warn("active fetcher", "netstore", n.id)
+		f, ok := n.fetchers.Get(key)
+		if ok {
+			log.Warn("cancelling fetcher", "addr", key, "fetcher", f.(*fetcher).id, "netstore", n.id)
+			f.(*fetcher).cancel()
+		}
+	}
 }
 
 // get attempts at retrieving the chunk from LocalStore
@@ -172,6 +183,7 @@ func (n *NetStore) getOrCreateFetcher(ref Address) *fetcher {
 		n.fetchers.Remove(key)
 		// stop fetcher by cancelling context called when
 		// all requests cancelled/timedout or chunk is delivered
+		log.Warn("cancelling fetcher: ", "addr", ref, "netstore", n.id)
 		cancel()
 	}
 	// peers always stores all the peers which have an active request for the chunk. It is shared
@@ -204,14 +216,14 @@ func (n *NetStore) RequestsCacheLen() int {
 // One fetcher object is responsible to fetch one chunk for one address, and keep track of all the
 // peers who have requested it and did not receive it yet.
 type fetcher struct {
-	addr       Address       // address of chunk
-	chunk      Chunk         // fetcher can set the chunk on the fetcher
-	deliveredC chan struct{} // chan signalling chunk delivery to requests
-	// cancelledC  chan struct{} // chan signalling the fetcher has been cancelled (removed from fetchers in NetStore)
-	netFetcher  NetFetcher // remote fetch function to be called with a request source taken from the context
-	cancel      func()     // cleanup function for the remote fetcher to call when all upstream contexts are called
-	peers       *sync.Map  // the peers which asked for the chunk
-	requestCnt  int32      // number of requests on this chunk. If all the requests are done (delivered or context is done) the cancel function is called
+	addr        Address       // address of chunk
+	chunk       Chunk         // fetcher can set the chunk on the fetcher
+	deliveredC  chan struct{} // chan signalling chunk delivery to requests
+	cancelledC  chan struct{} // chan signalling the fetcher has been cancelled (removed from fetchers in NetStore)
+	netFetcher  NetFetcher    // remote fetch function to be called with a request source taken from the context
+	cancel      func()        // cleanup function for the remote fetcher to call when all upstream contexts are called
+	peers       *sync.Map     // the peers which asked for the chunk
+	requestCnt  int32         // number of requests on this chunk. If all the requests are done (delivered or context is done) the cancel function is called
 	deliverOnce *sync.Once
 	id          int
 	netstoreId  int
@@ -224,17 +236,22 @@ type fetcher struct {
 //     2. the chunk has not been fetched but all context from all the requests has been done
 // The peers map stores all the peers which have requested chunk.
 func newFetcher(addr Address, nf NetFetcher, cancel func(), peers *sync.Map, netstoreId int) *fetcher {
-	// cancelOnce := &sync.Once{}        // cancel should only be called once
-	// cancelledC := make(chan struct{}) // closed when fetcher is cancelled
+	cancelOnce := &sync.Once{}        // cancel should only be called once
+	cancelledC := make(chan struct{}) // closed when fetcher is cancelled
 	log.Warn("Fetcher is created for chunk", "addr", addr)
 	nf.(WithNetStoreId).SetNetstoreId(netstoreId)
 	return &fetcher{
 		addr:        addr,
 		deliveredC:  make(chan struct{}),
 		deliverOnce: &sync.Once{},
-		// cancelledC:  cancelledC,
-		netFetcher: nf,
-		cancel:     cancel,
+		cancelledC:  cancelledC,
+		netFetcher:  nf,
+		cancel: func() {
+			cancelOnce.Do(func() {
+				close(cancelledC)
+				cancel()
+			})
+		},
 		peers:      peers,
 		id:         rand.Intn(10000),
 		netstoreId: netstoreId,
@@ -277,11 +294,14 @@ func (f *fetcher) Fetch(rctx context.Context) (Chunk, error) {
 	log.Warn("Fetcher is waiting for put", "addr", f.addr, "fetcher", f.id, "netstore", f.netstoreId)
 	select {
 	case <-rctx.Done():
-		log.Warn("Fetcher timeout", "addr", f.addr, "fetcher", f.id, "netstore", f.netstoreId)
-		return nil, fmt.Errorf("context deadline exceeded, addr %v, netstore %v", f.addr, f.netstoreId)
+		log.Warn("Fetcher ctx done", "addr", f.addr, "fetcher", f.id, "netstore", f.netstoreId, "Err", rctx.Err())
+		return nil, fmt.Errorf("%c, addr %v, netstore %v", rctx.Err(), f.addr, f.netstoreId)
 	case <-f.deliveredC:
 		log.Warn("Fetcher is done", "addr", f.addr, "fetcher", f.id, "netstore", f.netstoreId)
 		return f.chunk, nil
+	case <-f.cancelledC:
+		log.Warn("Netstore.fetcher cancelled", "addr", f.addr, "fetcher", f.id, "netstore", f.netstoreId)
+		return nil, fmt.Errorf("cancelled")
 	}
 }
 

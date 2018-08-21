@@ -46,6 +46,9 @@ func (m *mockNetFetcher) Request(ctx context.Context) {
 func (m *mockNetFetcher) Offer(ctx context.Context, source *discover.NodeID) {
 }
 
+func (m *mockNetFetcher) SetNetstoreId(id int) {
+}
+
 func newFakeNetFetcher(context.Context, storage.Address, *sync.Map) storage.NetFetcher {
 	return &mockNetFetcher{}
 }
