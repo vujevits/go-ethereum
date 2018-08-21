@@ -23,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/ethereum/go-ethereum/log"
 )
 
 /*
@@ -455,6 +457,7 @@ func (sw *AsyncHasher) Write(i int, section []byte) {
 	sw.mtx.Lock()
 	defer sw.mtx.Unlock()
 	t := sw.getTree()
+	log.Debug("offset", "o", t.offset, "c", t.cursor)
 	// cursor keeps track of the rightmost section written so far
 	// if index is lower than cursor then just write non-final section as is
 	if i < t.cursor {
@@ -478,7 +481,7 @@ func (sw *AsyncHasher) Write(i int, section []byte) {
 	// set i as the index of the righmost section written so far
 	// set t.offset to cursor*secsize+1
 	t.cursor = i
-	t.offset = i*sw.secsize + 1
+	t.offset = (i + 1) * sw.secsize
 	t.section = make([]byte, sw.secsize)
 	copy(t.section, section)
 }
