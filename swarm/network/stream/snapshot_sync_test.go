@@ -104,8 +104,8 @@ func TestSyncingViaDirectSubscribe(t *testing.T) {
 			nodeCnt = []int{32, 16}
 		} else {
 			//default test
-			chnkCnt = []int{32, 32}
-			nodeCnt = []int{16, 16}
+			chnkCnt = []int{32}
+			nodeCnt = []int{16}
 		}
 		for _, chnk := range chnkCnt {
 			for _, n := range nodeCnt {
@@ -310,16 +310,23 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 			bucket.Store(bucketKeyFileStore, fileStore)
 
 			cleanup = func() {
+				log.Warn("###cleanup removing datadir...")
 				os.RemoveAll(datadir)
+				log.Warn("###cleanup closing netstore...")
 				netStore.Close()
+				log.Warn("###cleanup closing netstore done")
 				r.Close()
+				log.Warn("###cleanup closing registry done")
 			}
 
 			return r, cleanup, nil
 
 		},
 	})
-	// defer sim.Close()
+	defer func() {
+		sim.Close()
+		log.Warn("Simulation terminated")
+	}()
 
 	ctx, cancelSimRun := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancelSimRun()
@@ -332,7 +339,9 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 	//array where the generated chunk hashes will be stored
 	conf.hashes = make([]storage.Address, 0)
 
+	time.Sleep(2 * time.Second)
 	err := sim.UploadSnapshot(fmt.Sprintf("testing/snapshot_%d.json", nodeCount))
+	time.Sleep(2 * time.Second)
 	if err != nil {
 		return err
 	}
@@ -462,9 +471,7 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 	}
 
 	log.Warn("Simulation terminating....")
-	sim.Close()
-	log.Warn("Simulation terminated")
-	// time.Sleep(10 * time.Second)
+	time.Sleep(10 * time.Second)
 	return nil
 }
 

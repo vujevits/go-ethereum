@@ -416,6 +416,7 @@ func (n *Node) Stop() error {
 		Services: make(map[reflect.Type]error),
 	}
 	for kind, service := range n.services {
+		log.Warn("stopping service...")
 		if err := service.Stop(); err != nil {
 			failure.Services[kind] = err
 		}

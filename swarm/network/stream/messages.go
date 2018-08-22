@@ -32,7 +32,7 @@ import (
 	opentracing "github.com/opentracing/opentracing-go"
 )
 
-var syncBatchTimeout = 3000 * time.Millisecond
+var syncBatchTimeout = 7000 * time.Millisecond
 
 // Stream defines a unique stream identifier.
 type Stream struct {
@@ -213,7 +213,7 @@ func (p *Peer) handleOfferedHashesMsg(ctx context.Context, req *OfferedHashesMsg
 	for i := 0; i < len(hashes); i += HashSize {
 		hash := hashes[i : i+HashSize]
 		wait := c.NeedData(ctx, hash)
-		log.Warn("hash is offered", "hash", common.Bytes2Hex(hash), "peer", p.ID(), "addr", p.streamer.addr.ID(), "wait", (wait == nil))
+		log.Warn("hash is offered", "hash", common.Bytes2Hex(hash), "stream", req.Stream, "peer", p.ID(), "addr", p.streamer.addr.ID(), "wait", (wait == nil))
 		if wait != nil {
 			ctr++
 			want.Set(i/HashSize, true)
@@ -343,7 +343,7 @@ func (p *Peer) handleWantedHashesMsg(ctx context.Context, req *WantedHashesMsg) 
 			metrics.GetOrRegisterCounter("peer.handlewantedhashesmsg.actualget", nil).Inc(1)
 
 			hash := hashes[i*HashSize : (i+1)*HashSize]
-			log.Warn("hash is wanted", "hash", common.Bytes2Hex(hash), "peer", p.ID(), "addr", p.streamer.addr.ID())
+			log.Warn("hash is wanted", "hash", common.Bytes2Hex(hash), "stream", req.Stream, "peer", p.ID(), "addr", p.streamer.addr.ID())
 			data, err := s.GetData(ctx, hash)
 			if err != nil {
 				return fmt.Errorf("handleWantedHashesMsg get data %x: %v", hash, err)

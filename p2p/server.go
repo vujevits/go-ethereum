@@ -743,7 +743,9 @@ running:
 	// not handled here and will terminate soon-ish because srv.quit
 	// is closed.
 	for len(peers) > 0 {
+		log.Warn("waiting for peer to disconnect")
 		p := <-srv.delpeer
+		log.Warn("waiting for peer to disconnect done")
 		p.log.Trace("<-delpeer (spindown)", "remainingTasks", len(runningTasks))
 		delete(peers, p.ID())
 	}

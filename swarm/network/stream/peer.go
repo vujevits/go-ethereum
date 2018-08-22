@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/p2p/protocols"
 	"github.com/ethereum/go-ethereum/swarm/log"
 	pq "github.com/ethereum/go-ethereum/swarm/network/priorityqueue"
@@ -83,7 +82,13 @@ func NewPeer(peer *protocols.Peer, streamer *Registry) *Peer {
 	ctx, cancel := context.WithCancel(context.Background())
 	go p.pq.Run(ctx, func(i interface{}) {
 		wmsg := i.(WrappedPriorityMsg)
-		p.Send(wmsg.Context, wmsg.Msg)
+		if chunkMsg, ok := wmsg.Msg.(*ChunkDeliveryMsg); ok {
+			log.Warn("sending chunk delivery message", "hash", chunkMsg.Addr, "peer", p.ID(), "addr", p.streamer.addr.ID())
+		}
+		err := p.Send(wmsg.Context, wmsg.Msg)
+		if err != nil {
+			log.Warn("error sending message", "peer", p.ID(), "addr", p.streamer.addr.ID(), "err", err)
+		}
 	})
 	go func() {
 		<-p.quit
@@ -105,20 +110,33 @@ func (p *Peer) Deliver(ctx context.Context, chunk storage.Chunk, priority uint8)
 		SData: chunk.Data(),
 	}
 	log.Warn("delivering chunk", "chunk", chunk.Address(), "peer", p.ID(), "addr", p.streamer.addr.ID())
-	return p.SendPriority(ctx, msg, priority)
+	// return p.SendPriority(ctx, msg, priority)
+	return p.Send(ctx, msg)
 }
 
 // SendPriority sends message to the peer using the outgoing priority queue
-func (p *Peer) SendPriority(ctx context.Context, msg interface{}, priority uint8) error {
-	defer metrics.GetOrRegisterResettingTimer(fmt.Sprintf("peer.sendpriority_t.%d", priority), nil).UpdateSince(time.Now())
-	metrics.GetOrRegisterCounter(fmt.Sprintf("peer.sendpriority.%d", priority), nil).Inc(1)
-	cctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
-	defer cancel()
-	wmsg := WrappedPriorityMsg{
-		Context: ctx,
-		Msg:     msg,
+func (p *Peer) SendPriority(ctx context.Context, msg interface{}, _ uint8) error {
+	// defer metrics.GetOrRegisterResettingTimer(fmt.Sprintf("peer.sendpriority_t.%d", priority), nil).UpdateSince(time.Now())
+	// metrics.GetOrRegisterCounter(fmt.Sprintf("peer.sendpriority.%d", priority), nil).Inc(1)
+	// cctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
+	// defer cancel()
+	// wmsg := WrappedPriorityMsg{
+	// 	Context: ctx,
+	// 	Msg:     msg,
+	// }
+	// return p.pq.Push(cctx, wmsg, int(priority))
+	if chunkMsg, ok := msg.(*ChunkDeliveryMsg); ok {
+		log.Warn("sending chunk delivery message", "hash", chunkMsg.Addr, "peer", p.ID(), "addr", p.streamer.addr.ID())
 	}
-	return p.pq.Push(cctx, wmsg, int(priority))
+	err := p.Send(ctx, msg)
+	if err != nil {
+		if chunkMsg, ok := msg.(*ChunkDeliveryMsg); ok {
+			log.Warn("error sending chunk delivery message", "hash", chunkMsg.Addr, "peer", p.ID(), "addr", p.streamer.addr.ID())
+		} else {
+			log.Warn("error sending message", "peer", p.ID(), "addr", p.streamer.addr.ID(), "err", err)
+		}
+	}
+	return err
 }
 
 // SendOfferedHashes sends OfferedHashesMsg protocol msg

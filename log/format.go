@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,9 +122,9 @@ func TerminalFormat(usecolor bool) Format {
 
 			// Assemble and print the log heading
 			if color > 0 {
-				fmt.Fprintf(b, "\x1b[%dm%s\x1b[0m[%s|%s]%s %s ", color, lvl, r.Time.Format(termTimeFormat), location, padding, r.Msg)
+				fmt.Fprintf(b, "\x1b[%dm%s\x1b[0m[%s|%s|%v]%s %s", color, lvl, r.Time.Format(termTimeFormat), location, getGID(), padding, r.Msg)
 			} else {
-				fmt.Fprintf(b, "%s[%s|%s]%s %s ", lvl, r.Time.Format(termTimeFormat), location, padding, r.Msg)
+				fmt.Fprintf(b, "%s[%s|%s|%v]%s %s", lvl, r.Time.Format(termTimeFormat), location, getGID(), padding, r.Msg)
 			}
 		} else {
 			if color > 0 {
@@ -141,6 +142,15 @@ func TerminalFormat(usecolor bool) Format {
 		logfmt(b, r.Ctx, color, true)
 		return b.Bytes()
 	})
+}
+
+func getGID() uint64 {
+	b := make([]byte, 64)
+	b = b[:runtime.Stack(b, false)]
+	b = bytes.TrimPrefix(b, []byte("goroutine "))
+	b = b[:bytes.IndexByte(b, ' ')]
+	n, _ := strconv.ParseUint(string(b), 10, 64)
+	return n
 }
 
 // LogfmtFormat prints records in logfmt format, an easy machine-parseable but human-readable
