@@ -73,8 +73,8 @@ func TestSyncingViaGlobalSync(t *testing.T) {
 			nodeCnt = []int{16, 32, 64, 128, 256}
 		} else {
 			//default test
-			chnkCnt = []int{32}
-			nodeCnt = []int{16}
+			chnkCnt = []int{4, 32}
+			nodeCnt = []int{32, 16}
 		}
 		for _, chnk := range chnkCnt {
 			for _, n := range nodeCnt {
@@ -104,8 +104,8 @@ func TestSyncingViaDirectSubscribe(t *testing.T) {
 			nodeCnt = []int{32, 16}
 		} else {
 			//default test
-			chnkCnt = []int{32}
-			nodeCnt = []int{16}
+			chnkCnt = []int{4, 32}
+			nodeCnt = []int{32, 16}
 		}
 		for _, chnk := range chnkCnt {
 			for _, n := range nodeCnt {
@@ -130,10 +130,7 @@ func testSyncingViaGlobalSync(t *testing.T, chunkCount int, nodeCount int) {
 				return nil, nil, err
 			}
 			bucket.Store(bucketKeyStore, store)
-			cleanup = func() {
-				os.RemoveAll(datadir)
-				store.Close()
-			}
+
 			localStore := store.(*storage.LocalStore)
 			netStore, err := storage.NewSyncNetStore(localStore, nil)
 			if err != nil {
@@ -148,6 +145,12 @@ func testSyncingViaGlobalSync(t *testing.T, chunkCount int, nodeCount int) {
 				SyncUpdateDelay: 3 * time.Second,
 			})
 			bucket.Store(bucketKeyRegistry, r)
+
+			cleanup = func() {
+				os.RemoveAll(datadir)
+				netStore.Close()
+				r.Close()
+			}
 
 			return r, cleanup, nil
 
@@ -165,7 +168,9 @@ func testSyncingViaGlobalSync(t *testing.T, chunkCount int, nodeCount int) {
 	//array where the generated chunk hashes will be stored
 	conf.hashes = make([]storage.Address, 0)
 
+	time.Sleep(1 * time.Second)
 	err := sim.UploadSnapshot(fmt.Sprintf("testing/snapshot_%d.json", nodeCount))
+	time.Sleep(1 * time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,9 +344,9 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 	//array where the generated chunk hashes will be stored
 	conf.hashes = make([]storage.Address, 0)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 	err := sim.UploadSnapshot(fmt.Sprintf("testing/snapshot_%d.json", nodeCount))
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 	if err != nil {
 		return err
 	}
