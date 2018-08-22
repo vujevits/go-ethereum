@@ -476,7 +476,6 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 	}
 
 	log.Warn("Simulation terminating....")
-	time.Sleep(10 * time.Second)
 	return nil
 }
 

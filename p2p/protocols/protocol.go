@@ -231,7 +231,7 @@ func (p *Peer) Run(handler func(ctx context.Context, msg interface{}) error) err
 // TODO: may need to implement protocol drop only? don't want to kick off the peer
 // if they are useful for other protocols
 func (p *Peer) Drop(err error) {
-	// p.Disconnect(p2p.DiscSubprotocolError)
+	p.Disconnect(p2p.DiscSubprotocolError)
 }
 
 // Send takes a message, encodes it in RLP, finds the right message code and sends the
@@ -290,10 +290,6 @@ func (p *Peer) Send(ctx context.Context, msg interface{}) error {
 // * handles decoding with reflection,
 // * call handlers as callbacks
 func (p *Peer) handleIncoming(handle func(ctx context.Context, msg interface{}) error) error {
-	log.Warn("handle incoming message...", "peer", p.ID())
-	defer func() {
-		log.Warn("handle incoming message done", "peer", p.ID())
-	}()
 	msg, err := p.rw.ReadMsg()
 	if err != nil {
 		return err
