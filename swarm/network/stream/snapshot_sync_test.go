@@ -168,15 +168,17 @@ func testSyncingViaGlobalSync(t *testing.T, chunkCount int, nodeCount int) {
 	//array where the generated chunk hashes will be stored
 	conf.hashes = make([]storage.Address, 0)
 
-	time.Sleep(1 * time.Second)
 	err := sim.UploadSnapshot(fmt.Sprintf("testing/snapshot_%d.json", nodeCount))
-	time.Sleep(1 * time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	ctx, cancelSimRun := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancelSimRun()
+
+	if _, err := sim.WaitTillHealthy(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
 
 	result := sim.Run(ctx, func(ctx context.Context, sim *simulation.Simulation) error {
 		nodeIDs := sim.UpNodeIDs()
@@ -205,10 +207,6 @@ func testSyncingViaGlobalSync(t *testing.T, chunkCount int, nodeCount int) {
 		}
 		conf.hashes = append(conf.hashes, hashes...)
 		mapKeysToNodes(conf)
-
-		if _, err := sim.WaitTillHealthy(ctx, 2); err != nil {
-			return err
-		}
 
 		// File retrieval check is repeated until all uploaded files are retrieved from all nodes
 		// or until the timeout is reached.
@@ -344,10 +342,13 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 	//array where the generated chunk hashes will be stored
 	conf.hashes = make([]storage.Address, 0)
 
-	time.Sleep(1 * time.Second)
 	err := sim.UploadSnapshot(fmt.Sprintf("testing/snapshot_%d.json", nodeCount))
-	time.Sleep(1 * time.Second)
 	if err != nil {
+		return err
+	}
+
+	log.Warn("wait till healthy...")
+	if _, err := sim.WaitTillHealthy(ctx, 2); err != nil {
 		return err
 	}
 
@@ -412,10 +413,6 @@ func testSyncingViaDirectSubscribe(chunkCount int, nodeCount int) error {
 		conf.hashes = append(conf.hashes, hashes...)
 		mapKeysToNodes(conf)
 
-		log.Warn("wait till healthy...")
-		if _, err := sim.WaitTillHealthy(ctx, 2); err != nil {
-			return err
-		}
 		log.Warn("wait till healthy done")
 		var gDir string
 		var globalStore *mockdb.GlobalStore
