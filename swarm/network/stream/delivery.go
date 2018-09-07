@@ -47,14 +47,14 @@ var (
 
 type Delivery struct {
 	chunkStore storage.SyncChunkStore
-	overlay    network.Overlay
+	kad        *network.Kademlia
 	getPeer    func(discover.NodeID) *Peer
 }
 
-func NewDelivery(overlay network.Overlay, chunkStore storage.SyncChunkStore) *Delivery {
+func NewDelivery(kad *network.Kademlia, chunkStore storage.SyncChunkStore) *Delivery {
 	return &Delivery{
 		chunkStore: chunkStore,
-		overlay:    overlay,
+		kad:        kad,
 	}
 }
 
@@ -225,8 +225,8 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 			return nil, nil, fmt.Errorf("source peer %v not found", spID.String())
 		}
 	} else {
-		d.overlay.EachConn(req.Addr[:], 255, func(p network.OverlayConn, po int, nn bool) bool {
-			id := p.(network.Peer).ID()
+		d.kad.EachConn(req.Addr[:], 255, func(p *network.Peer, po int, nn bool) bool {
+			id := p.ID()
 			// TODO: skip light nodes that do not accept retrieve requests
 			if _, ok := req.PeersToSkip.Load(id.String()); ok {
 				log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
