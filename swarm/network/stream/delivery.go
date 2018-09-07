@@ -35,6 +35,7 @@ import (
 const (
 	swarmChunkServerStreamName = "RETRIEVE_REQUEST"
 	deliveryCap                = 32
+	requestTimeout             = 10 * time.Second
 )
 
 var (
@@ -149,7 +150,7 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 
 	var cancel func()
 	// TODO: do something with this hardcoded timeout, maybe use TTL in the future
-	ctx, cancel = context.WithTimeout(context.WithValue(ctx, "peer", sp.ID().String()), 10*time.Second)
+	ctx, cancel = context.WithTimeout(context.WithValue(ctx, "peer", sp.ID().String()), requestTimeout)
 
 	go func() {
 		select {
@@ -175,6 +176,10 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 		select {
 		case streamer.deliveryC <- chunk.Address()[:]:
 		case <-streamer.quit:
+		}
+		err = sp.Deliver(ctx, chunk, s.priority)
+		if err != nil {
+			log.Warn("ERROR in handleRetrieveRequestMsg", "err", err)
 		}
 
 	}()
@@ -225,12 +230,20 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 			return nil, nil, fmt.Errorf("source peer %v not found", spID.String())
 		}
 	} else {
-		d.overlay.EachConn(req.Addr[:], 255, func(p network.OverlayConn, po int, nn bool) bool {
+		log.Debug("Delivery.RequestFromPeers: peersToSkip are: ", "peersToSkip", req.PeersToSkip)
+		d.overlay.EachConn(req.Addr[:], 256, func(p network.OverlayConn, po int, nn bool) bool {
 			id := p.(network.Peer).ID()
+			log.Debug("Delivery.RequestFromPeers: checking on connection with peer", "id", id)
 			// TODO: skip light nodes that do not accept retrieve requests
-			if _, ok := req.PeersToSkip.Load(id.String()); ok {
-				log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
-				return true
+			if val, ok := req.PeersToSkip.Load(id.String()); ok {
+				timeValue := val.(time.Time)
+				if timeValue.Add(requestTimeout).After(time.Now()) {
+					log.Debug("Delivery.RequestFromPeers: request timeout expired, remove from PeersToSkip", "peer id", id)
+					req.PeersToSkip.Delete(id.String())
+				} else {
+					log.Debug("Delivery.RequestFromPeers: skip peer", "peer id", id)
+					return true
+				}
 			}
 			sp = d.getPeer(id)
 			if sp == nil {

@@ -37,6 +37,14 @@ import (
 )
 
 func generateEndpoints(scheme string, cluster string, from int, to int) {
+	if cluster == "local" {
+		for port := from; port <= to; port++ {
+			endpoints = append(endpoints, fmt.Sprintf("%s://%s:%d", scheme, "localhost", port))
+		}
+		fmt.Println(endpoints)
+		return
+	}
+
 	if cluster == "prod" {
 		cluster = ""
 	} else {

@@ -185,6 +185,7 @@ func (f *Fetcher) run(ctx context.Context, peers *sync.Map) {
 			sources, err = f.doRequest(ctx, gone, peers, sources)
 			if err != nil {
 				log.Debug("unable to request", "request addr", f.addr, "err", err)
+				//TODO: THIS SEEMS LIKE RATHER SEVERE, SHOULDN'T WE DO SOMETHING ABOUT IT?
 			}
 		}
 
@@ -235,6 +236,7 @@ func (f *Fetcher) doRequest(ctx context.Context, gone chan *discover.NodeID, pee
 	// iterate over known sources
 	for i = 0; i < len(sources); i++ {
 		req.Source = sources[i]
+		log.Debug("doRequest: iterate source", "iteration", i, "source", req.Source)
 		var err error
 		sourceID, quit, err = f.protoRequestFunc(ctx, req)
 		if err == nil {
@@ -242,22 +244,25 @@ func (f *Fetcher) doRequest(ctx context.Context, gone chan *discover.NodeID, pee
 			// Note: we can modify the source although we are looping on it, because we break from the loop immediately
 			sources = append(sources[:i], sources[i+1:]...)
 			foundSource = true
+			log.Debug("doRequest: foundSource true", "iteration", i, "source", req.Source)
 			break
 		}
 	}
 
 	// if there are no known sources, or none available, we try request from a closest node
 	if !foundSource {
+		log.Debug("doRequest: foundSource false; request from closest node")
 		req.Source = nil
 		var err error
 		sourceID, quit, err = f.protoRequestFunc(ctx, req)
 		if err != nil {
 			// if no peers found to request from
+			log.Warn("doRequest: foundSource false; no peers found to request from")
 			return sources, err
 		}
 	}
 	// add peer to the set of peers to skip from now
-	peersToSkip.Store(sourceID.String(), true)
+	//peersToSkip.Store(sourceID.String(), time.Now())
 
 	// if the quit channel is closed, it indicates that the source peer we requested from
 	// disconnected or terminated its streamer
