@@ -177,11 +177,6 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 		case streamer.deliveryC <- chunk.Address()[:]:
 		case <-streamer.quit:
 		}
-		err = sp.Deliver(ctx, chunk, s.priority)
-		if err != nil {
-			log.Warn("ERROR in handleRetrieveRequestMsg", "err", err)
-		}
-
 	}()
 
 	return nil
@@ -238,12 +233,12 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 			if val, ok := req.PeersToSkip.Load(id.String()); ok {
 				timeValue := val.(time.Time)
 				if timeValue.Add(requestTimeout).After(time.Now()) {
+					log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
+					return true
+				} else {
 					log.Trace("Delivery.RequestFromPeers: request timeout expired, remove from PeersToSkip", "peer id", id)
 					req.PeersToSkip.Delete(id.String())
-				} else {
-					log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
 				}
-				return true
 			}
 			sp = d.getPeer(id)
 			if sp == nil {

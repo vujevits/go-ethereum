@@ -184,8 +184,7 @@ func (f *Fetcher) run(ctx context.Context, peers *sync.Map) {
 			var err error
 			sources, err = f.doRequest(ctx, gone, peers, sources)
 			if err != nil {
-				log.Debug("unable to request", "request addr", f.addr, "err", err)
-				//TODO: THIS SEEMS LIKE RATHER SEVERE, SHOULDN'T WE DO SOMETHING ABOUT IT?
+				log.Warn("unable to request! ", "request addr", f.addr, "err", err)
 			}
 		}
 

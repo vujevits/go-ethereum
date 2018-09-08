@@ -89,7 +89,7 @@ func NewConfig() (c *Config) {
 		NetworkID:         network.DefaultNetworkID,
 		SwapEnabled:       false,
 		SyncEnabled:       true,
-		DeliverySkipCheck: false,
+		DeliverySkipCheck: true,
 		SyncUpdateDelay:   15 * time.Second,
 		SwapAPI:           "",
 	}
