@@ -141,8 +141,8 @@ func testSyncingViaGlobalSync(t *testing.T, chunkCount int, nodeCount int) {
 
 			r := NewRegistry(addr, delivery, netStore, state.NewInmemoryStore(), &RegistryOptions{
 				DoSync:          true,
-				SkipCheck:       false, //TODO: SkipCheck option should come from config
-				SyncUpdateDelay: 3 * time.Second,
+				SkipCheck:       false, //TODO: is this flag used for anything?
+				SyncUpdateDelay: 6 * time.Second,
 			})
 			bucket.Store(bucketKeyRegistry, r)
 
