@@ -262,7 +262,7 @@ func (f *Fetcher) doRequest(ctx context.Context, gone chan *discover.NodeID, pee
 		}
 	}
 	// add peer to the set of peers to skip from now
-	//peersToSkip.Store(sourceID.String(), time.Now())
+	peersToSkip.Store(sourceID.String(), time.Now())
 
 	// if the quit channel is closed, it indicates that the source peer we requested from
 	// disconnected or terminated its streamer

@@ -230,20 +230,20 @@ func (d *Delivery) RequestFromPeers(ctx context.Context, req *network.Request) (
 			return nil, nil, fmt.Errorf("source peer %v not found", spID.String())
 		}
 	} else {
-		log.Debug("Delivery.RequestFromPeers: peersToSkip are: ", "peersToSkip", req.PeersToSkip)
-		d.overlay.EachConn(req.Addr[:], 256, func(p network.OverlayConn, po int, nn bool) bool {
+		d.overlay.EachConn(req.Addr[:], 255, func(p network.OverlayConn, po int, nn bool) bool {
 			id := p.(network.Peer).ID()
-			log.Debug("Delivery.RequestFromPeers: checking on connection with peer", "id", id)
+			log.Trace("Delivery.RequestFromPeers: checking on connection with peer", "id", id)
 			// TODO: skip light nodes that do not accept retrieve requests
+
 			if val, ok := req.PeersToSkip.Load(id.String()); ok {
 				timeValue := val.(time.Time)
 				if timeValue.Add(requestTimeout).After(time.Now()) {
-					log.Debug("Delivery.RequestFromPeers: request timeout expired, remove from PeersToSkip", "peer id", id)
+					log.Trace("Delivery.RequestFromPeers: request timeout expired, remove from PeersToSkip", "peer id", id)
 					req.PeersToSkip.Delete(id.String())
 				} else {
-					log.Debug("Delivery.RequestFromPeers: skip peer", "peer id", id)
-					return true
+					log.Trace("Delivery.RequestFromPeers: skip peer", "peer id", id)
 				}
+				return true
 			}
 			sp = d.getPeer(id)
 			if sp == nil {
