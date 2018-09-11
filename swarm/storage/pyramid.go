@@ -288,7 +288,7 @@ func (pc *PyramidChunker) processor(ctx context.Context, id int64) {
 }
 
 func (pc *PyramidChunker) processChunk(ctx context.Context, id int64, job *chunkJob) {
-	log.Debug("pyramid.chunker: processChunk()", "id", id)
+	log.Trace("pyramid.chunker: processChunk()", "id", id)
 
 	ref, err := pc.putter.Put(ctx, job.chunk)
 	if err != nil {
