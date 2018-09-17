@@ -185,6 +185,15 @@ func testStoreRandom(m ChunkStore, n int, chunksize int64, t *testing.T) {
 	}
 }
 
+func generateSerialData(l int, mod int, offset int) (r io.Reader, slice []byte) {
+	slice = make([]byte, l)
+	for i := 0; i < len(slice); i++ {
+		slice[i] = byte((i + offset) % mod)
+	}
+	r = io.LimitReader(bytes.NewReader(slice), int64(l))
+	return
+}
+
 func testStoreCorrect(m ChunkStore, n int, chunksize int64, t *testing.T) {
 	chunks, err := mputRandomChunks(m, n, chunksize)
 	if err != nil {
