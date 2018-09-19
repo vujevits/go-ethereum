@@ -280,7 +280,7 @@ func (f *Fetcher) doRequest(ctx context.Context, gone chan *discover.NodeID, pee
 		ctx,
 		"doRequest")
 	defer osp.Finish()
-	osp.LogFields(otlog.String("f.req", fmt.Sprintf("%v", &f)))
+	osp.LogFields(otlog.String("f.req", fmt.Sprintf("%v", f)))
 
 	foundSource := false
 	// iterate over known sources
