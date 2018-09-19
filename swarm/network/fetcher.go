@@ -19,6 +19,7 @@ package network
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -52,6 +53,7 @@ type Fetcher struct {
 	offerC           chan *discover.NodeID // channel of sources (peer node id strings)
 	requestC         chan uint64           // channel for incoming requests (with the hopCtr value in it)
 	skipCheck        bool
+	id               int
 }
 
 type Request struct {
@@ -122,6 +124,7 @@ func NewFetcher(addr storage.Address, rf RequestFunc, skipCheck bool) *Fetcher {
 		offerC:           make(chan *discover.NodeID),
 		requestC:         make(chan uint64),
 		skipCheck:        skipCheck,
+		id:               rand.Intn(10000),
 	}
 }
 
@@ -280,7 +283,7 @@ func (f *Fetcher) doRequest(ctx context.Context, gone chan *discover.NodeID, pee
 		ctx,
 		"doRequest")
 	defer osp.Finish()
-	osp.LogFields(otlog.String("f.req", fmt.Sprintf("%v", f)))
+	osp.LogFields(otlog.String("f.id", fmt.Sprintf("%v", f.id)))
 
 	foundSource := false
 	// iterate over known sources
