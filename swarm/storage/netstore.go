@@ -26,8 +26,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/swarm/log"
-
+	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	lru "github.com/hashicorp/golang-lru"
+	opentracing "github.com/opentracing/opentracing-go"
+	otlog "github.com/opentracing/opentracing-go/log"
 )
 
 type (
@@ -37,6 +39,7 @@ type (
 type NetFetcher interface {
 	Request(ctx context.Context, hopCtr uint64)
 	Offer(ctx context.Context, source *discover.NodeID)
+	Id() int
 }
 
 // NetStore is an extension of local storage
@@ -172,11 +175,13 @@ func (n *NetStore) getOrCreateFetcher(ctx context.Context, ref Address) *fetcher
 	// create the context during which fetching is kept alive
 	ctx, cancel := context.WithTimeout(ctx, fetcherTimeout)
 	// destroy is called when all requests finish
+
 	destroy := func() {
 		// remove fetcher from fetchers
 		n.fetchers.Remove(key)
 		// stop fetcher by cancelling context called when
 		// all requests cancelled/timedout or chunk is delivered
+
 		cancel()
 	}
 	// peers always stores all the peers which have an active request for the chunk. It is shared
@@ -184,7 +189,16 @@ func (n *NetStore) getOrCreateFetcher(ctx context.Context, ref Address) *fetcher
 	// the peers which requested the chunk should not be requested to deliver it.
 	peers := &sync.Map{}
 
-	fetcher := newFetcher(ref, n.NewNetFetcherFunc(ctx, ref, peers), destroy, peers, n.closeC)
+	netFetcher := n.NewNetFetcherFunc(ctx, ref, peers)
+
+	var osp opentracing.Span
+	_, osp = spancontext.StartSpan(
+		ctx,
+		"fetcher.create")
+	defer osp.Finish()
+	osp.LogFields(otlog.String("f.id", fmt.Sprintf("%v", netFetcher.Id())))
+
+	fetcher := newFetcher(ref, netFetcher, destroy, peers, n.closeC)
 	n.fetchers.Add(key, fetcher)
 
 	return fetcher
@@ -250,6 +264,14 @@ func (f *fetcher) Fetch(rctx context.Context) (Chunk, error) {
 	defer func() {
 		// if all the requests are done the fetcher can be cancelled
 		if atomic.AddInt32(&f.requestCnt, -1) == 0 {
+
+			var osp opentracing.Span
+			_, osp = spancontext.StartSpan(
+				rctx,
+				"fetcher.cancel")
+			defer osp.Finish()
+			osp.LogFields(otlog.String("f.id", fmt.Sprintf("%v", f.netFetcher.Id())))
+
 			f.cancel()
 		}
 	}()

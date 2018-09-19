@@ -166,6 +166,10 @@ func (f *Fetcher) Request(ctx context.Context, hopCtr uint64) {
 	}
 }
 
+func (f *Fetcher) Id() int {
+	return f.id
+}
+
 // start prepares the Fetcher
 // it keeps the Fetcher alive within the lifecycle of the passed context
 func (f *Fetcher) run(ctx context.Context, peers *sync.Map) {

@@ -41,6 +41,10 @@ func (t *TestHandler) Close() {
 
 type mockNetFetcher struct{}
 
+func (m *mockNetFetcher) Id() int {
+	return 0
+}
+
 func (m *mockNetFetcher) Request(ctx context.Context, hopCtr uint64) {
 }
 func (m *mockNetFetcher) Offer(ctx context.Context, source *discover.NodeID) {
