@@ -151,7 +151,7 @@ func (n *NetStore) get(ctx context.Context, ref Address) (Chunk, func(context.Co
 		}
 		// The chunk is not available in the LocalStore, let's get the fetcher for it, or create a new one
 		// if it doesn't exist yet
-		f := n.getOrCreateFetcher(ref)
+		f := n.getOrCreateFetcher(ctx, ref)
 		// If the caller needs the chunk, it has to use the returned fetch function to get it
 		return nil, f.Fetch, nil
 	}
@@ -162,7 +162,7 @@ func (n *NetStore) get(ctx context.Context, ref Address) (Chunk, func(context.Co
 // getOrCreateFetcher attempts at retrieving an existing fetchers
 // if none exists, creates one and saves it in the fetchers cache
 // caller must hold the lock
-func (n *NetStore) getOrCreateFetcher(ref Address) *fetcher {
+func (n *NetStore) getOrCreateFetcher(ctx context.Context, ref Address) *fetcher {
 	if f := n.getFetcher(ref); f != nil {
 		return f
 	}
@@ -170,7 +170,7 @@ func (n *NetStore) getOrCreateFetcher(ref Address) *fetcher {
 	// no fetcher for the given address, we have to create a new one
 	key := hex.EncodeToString(ref)
 	// create the context during which fetching is kept alive
-	ctx, cancel := context.WithTimeout(context.Background(), fetcherTimeout)
+	ctx, cancel := context.WithTimeout(ctx, fetcherTimeout)
 	// destroy is called when all requests finish
 	destroy := func() {
 		// remove fetcher from fetchers
