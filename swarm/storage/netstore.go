@@ -26,10 +26,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/swarm/log"
-	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	lru "github.com/hashicorp/golang-lru"
-	opentracing "github.com/opentracing/opentracing-go"
-	otlog "github.com/opentracing/opentracing-go/log"
 )
 
 type (
@@ -191,12 +188,12 @@ func (n *NetStore) getOrCreateFetcher(ctx context.Context, ref Address) *fetcher
 
 	netFetcher := n.NewNetFetcherFunc(ctx, ref, peers)
 
-	var osp opentracing.Span
-	_, osp = spancontext.StartSpan(
-		ctx,
-		"fetcher.create")
-	defer osp.Finish()
-	osp.LogFields(otlog.String("f.id", fmt.Sprintf("%v", netFetcher.Id())))
+	// var osp opentracing.Span
+	// _, osp = spancontext.StartSpan(
+	// 	ctx,
+	// 	"fetcher.create")
+	// defer osp.Finish()
+	// osp.LogFields(otlog.String("f.id", fmt.Sprintf("%v", netFetcher.Id())))
 
 	fetcher := newFetcher(ref, netFetcher, destroy, peers, n.closeC)
 	n.fetchers.Add(key, fetcher)
@@ -265,12 +262,12 @@ func (f *fetcher) Fetch(rctx context.Context) (Chunk, error) {
 		// if all the requests are done the fetcher can be cancelled
 		if atomic.AddInt32(&f.requestCnt, -1) == 0 {
 
-			var osp opentracing.Span
-			_, osp = spancontext.StartSpan(
-				rctx,
-				"fetcher.cancel")
-			defer osp.Finish()
-			osp.LogFields(otlog.String("f.id", fmt.Sprintf("%v", f.netFetcher.Id())))
+			// var osp opentracing.Span
+			// _, osp = spancontext.StartSpan(
+			// 	rctx,
+			// 	"fetcher.cancel")
+			// defer osp.Finish()
+			// osp.LogFields(otlog.String("f.id", fmt.Sprintf("%v", f.netFetcher.Id())))
 
 			f.cancel()
 		}
