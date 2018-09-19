@@ -18,12 +18,16 @@ package network
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p/discover"
+	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	"github.com/ethereum/go-ethereum/swarm/storage"
+	opentracing "github.com/opentracing/opentracing-go"
+	otlog "github.com/opentracing/opentracing-go/log"
 )
 
 var searchTimeout = 1 * time.Second
@@ -270,6 +274,13 @@ func (f *Fetcher) doRequest(ctx context.Context, gone chan *discover.NodeID, pee
 		peersToSkip: peersToSkip,
 		HopCtr:      hopCtr,
 	}
+
+	var osp opentracing.Span
+	ctx, osp = spancontext.StartSpan(
+		ctx,
+		"doRequest")
+	defer osp.Finish()
+	osp.LogFields(otlog.String("f.req", fmt.Sprintf("%v", &f)))
 
 	foundSource := false
 	// iterate over known sources

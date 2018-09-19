@@ -139,7 +139,7 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 	var osp opentracing.Span
 	ctx, osp = spancontext.StartSpan(
 		ctx,
-		"retrieve.request")
+		"handle.retrieve.request")
 	defer osp.Finish()
 	osp.LogFields(otlog.String("cid", req.Addr.String()), otlog.Int("hopctr", int(req.HopCtr)))
 
@@ -197,7 +197,7 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req *Ch
 	var osp opentracing.Span
 	ctx, osp = spancontext.StartSpan(
 		ctx,
-		"chunk.delivery")
+		"handle.chunk.delivery")
 	defer osp.Finish()
 
 	processReceivedChunksCount.Inc(1)
