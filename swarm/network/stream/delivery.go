@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/swarm/spancontext"
 	"github.com/ethereum/go-ethereum/swarm/storage"
 	opentracing "github.com/opentracing/opentracing-go"
+	otlog "github.com/opentracing/opentracing-go/log"
 )
 
 const (
@@ -140,6 +141,7 @@ func (d *Delivery) handleRetrieveRequestMsg(ctx context.Context, sp *Peer, req *
 		ctx,
 		"retrieve.request")
 	defer osp.Finish()
+	osp.LogFields(otlog.String("cid", req.Addr.String()), otlog.Int("hopctr", int(req.HopCtr)))
 
 	s, err := sp.getServer(NewStream(swarmChunkServerStreamName, "", false))
 	if err != nil {
