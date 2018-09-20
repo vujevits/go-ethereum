@@ -314,7 +314,6 @@ func (tc *TreeChunker) split(ctx context.Context, depth int, treeSize int64, add
 		}
 		// the hash of that data
 		subTreeAddress := chunk[8+i*tc.hashSize : 8+(i+1)*tc.hashSize]
-		log.Debug("subtreekey", "key", subTreeAddress, "branchcnt", branchCnt, "i", i)
 
 		childrenWg.Add(1)
 		tc.split(ctx, depth-1, treeSize/tc.branches, subTreeAddress, secSize, childrenWg)
@@ -332,6 +331,7 @@ func (tc *TreeChunker) split(ctx context.Context, depth int, treeSize int64, add
 		tc.runWorker(ctx)
 
 	}
+	log.Debug("split intermediate", "size", size, "size", chunk[:8], "one", chunk[8:40], "two", chunk[40:72])
 	select {
 	case tc.jobC <- &hashJob{addr, chunk, size, parentWg}:
 	case <-tc.quitC:
@@ -498,6 +498,7 @@ func (r *LazyChunkReader) ReadAt(b []byte, off int64) (read int, err error) {
 }
 
 func (r *LazyChunkReader) join(b []byte, off int64, eoff int64, depth int, treeSize int64, chunkData ChunkData, parentWg *sync.WaitGroup, errC chan error, quitC chan bool) {
+
 	defer parentWg.Done()
 	// find appropriate block level
 	for chunkData.Size() < uint64(treeSize) && depth > r.depth {
@@ -507,6 +508,7 @@ func (r *LazyChunkReader) join(b []byte, off int64, eoff int64, depth int, treeS
 
 	// leaf chunk found
 	if depth == r.depth {
+		log.Debug("found data", "data", chunkData[:16], "off", off, "eoff", eoff, "depth", depth)
 		extra := 8 + eoff - int64(len(chunkData))
 		if extra > 0 {
 			eoff -= extra
@@ -527,6 +529,9 @@ func (r *LazyChunkReader) join(b []byte, off int64, eoff int64, depth int, treeS
 
 	wg := &sync.WaitGroup{}
 	defer wg.Wait()
+
+	log.Debug("joining", "off", off, "eoff", eoff, "start", start, "end", end)
+
 	for i := start; i < end; i++ {
 		soff := i * treeSize
 		roff := soff
@@ -545,6 +550,7 @@ func (r *LazyChunkReader) join(b []byte, off int64, eoff int64, depth int, treeS
 		go func(j int64) {
 			childAddress := chunkData[8+j*r.hashSize : 8+(j+1)*r.hashSize]
 			chunkData, err := r.getter.Get(r.ctx, Reference(childAddress))
+			log.Debug("joiner intermediate", "addr", childAddress, "data", chunkData[:8])
 			if err != nil {
 				log.Debug("lazychunkreader.join", "key", fmt.Sprintf("%x", childAddress), "err", err)
 				select {
@@ -560,6 +566,7 @@ func (r *LazyChunkReader) join(b []byte, off int64, eoff int64, depth int, treeS
 				}
 				return
 			}
+			chunkMeta := binary.LittleEndian.Uint64(chunkData[:8])
 			if soff < off {
 				soff = off
 			}

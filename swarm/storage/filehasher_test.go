@@ -31,7 +31,7 @@ func TestSum(t *testing.T) {
 	chunkSize := 128 * 32
 	serialOffset := 0
 	//dataLengths := []int{31, 32, 33, 63, 64, 65, chunkSize, chunkSize + 31, chunkSize + 32, chunkSize + 63, chunkSize + 64, chunkSize * 2, chunkSize*2 + 32, chunkSize * 128, chunkSize*128 + 31, chunkSize*128 + 32, chunkSize*128 + 64, chunkSize * 129, chunkSize * 130, chunkSize * 128 * 128}
-	dataLengths := []int{chunkSize * 129}
+	dataLengths := []int{chunkSize*128 + 64}
 
 	for _, dl := range dataLengths {
 		chunks := dl / chunkSize
@@ -73,7 +73,7 @@ func TestSum(t *testing.T) {
 
 func referenceHash(data []byte) ([]byte, error) {
 	//return []byte{}, nil
-	putGetter := newTestHasherStore(&fakeChunkStore{}, BMTHash)
+	putGetter := newTestHasherStore(&FakeChunkStore{}, BMTHash)
 	p, _, err := PyramidSplit(context.TODO(), io.LimitReader(bytes.NewReader(data), int64(len(data))), putGetter, putGetter)
 	return p, err
 }

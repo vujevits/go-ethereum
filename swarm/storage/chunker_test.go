@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto/sha3"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 /*
@@ -101,6 +102,26 @@ func testSerialData(usePyramid bool, hash string, n int, tester *chunkerTester) 
 	err = wait(ctx)
 	if err != nil {
 		tester.t.Fatalf(err.Error())
+	}
+
+	reader := TreeJoin(ctx, addr, putGetter, 0)
+
+	quitC := make(chan bool)
+	sz, err := reader.Size(context.TODO(), quitC)
+	if err != nil {
+		tester.t.Fatalf(err.Error())
+	}
+	log.Debug("joiner size report", "sz", sz)
+
+	output := make([]byte, n)
+	r, err := reader.Read(output)
+	if r != n || err != io.EOF {
+		tester.t.Fatalf("read error  read: %v  n = %v  err = %v\n", r, n, err)
+	}
+	if input != nil {
+		if !bytes.Equal(output, input) {
+			tester.t.Fatalf("input and output mismatch\n IN: %v\nOUT: %v\n", input, output)
+		}
 	}
 	return addr
 }
@@ -265,7 +286,8 @@ func TestDataAppend(t *testing.T) {
 }
 
 func TestSerialData(t *testing.T) {
-	sizes := []int{4096 * 129}
+	//sizes := []int{4096 * 129}
+	sizes := []int{4096*128 + 64}
 	tester := &chunkerTester{t: t}
 
 	for _, s := range sizes {
