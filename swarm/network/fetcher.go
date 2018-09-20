@@ -206,7 +206,7 @@ func (f *Fetcher) run(ctx context.Context, peers *sync.Map) {
 			log.Trace("new request", "request addr", f.addr)
 			// 2) chunk is requested, set requested flag
 			// launch a request iff none been launched yet
-			doRequest = !requested
+			doRequest = true
 			requested = true
 
 			// peer we requested from is gone. fall back to another
