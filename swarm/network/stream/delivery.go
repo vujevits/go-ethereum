@@ -199,6 +199,7 @@ func (d *Delivery) handleChunkDeliveryMsg(ctx context.Context, sp *Peer, req *Ch
 		ctx,
 		"handle.chunk.delivery")
 	defer osp.Finish()
+	osp.LogFields(otlog.String("cid", req.Addr.String()))
 
 	processReceivedChunksCount.Inc(1)
 
