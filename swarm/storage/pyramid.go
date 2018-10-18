@@ -438,6 +438,7 @@ func (pc *PyramidChunker) prepareChunks(ctx context.Context, isAppend bool) {
 	}
 
 	for index := 0; ; index++ {
+		log.Trace("pyramid.chunker: for loop head", "index", index)
 		var err error
 		chunkData := make([]byte, pc.chunkSize+8)
 
@@ -457,6 +458,7 @@ func (pc *PyramidChunker) prepareChunks(ctx context.Context, isAppend bool) {
 		// a successful call to ioutil.ReadAll returns err == nil, not err == EOF, whereas we
 		// want to propagate the io.EOF error
 		if len(res) == 0 && err == nil {
+			log.Trace("len(res) == 0 && err == nil")
 			err = io.EOF
 		}
 		copy(chunkData[8+readBytes:], res)
@@ -466,6 +468,7 @@ func (pc *PyramidChunker) prepareChunks(ctx context.Context, isAppend bool) {
 
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				log.Trace("err == io.EOF || err == io.ErrUnexpectedEOF")
 
 				pc.cleanChunkLevels()
 
@@ -478,6 +481,7 @@ func (pc *PyramidChunker) prepareChunks(ctx context.Context, isAppend bool) {
 					break
 				}
 			} else {
+				log.Trace("close(pc.quitC)")
 				close(pc.quitC)
 				break
 			}
@@ -485,6 +489,7 @@ func (pc *PyramidChunker) prepareChunks(ctx context.Context, isAppend bool) {
 
 		// Data ended in chunk boundary.. just signal to start bulding tree
 		if readBytes == 0 {
+			log.Trace("readbytes0")
 			pc.buildTree(isAppend, parent, chunkWG, true, nil)
 			break
 		} else {
